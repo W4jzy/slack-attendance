@@ -1031,7 +1031,6 @@ def share_event(
             {
                 "type": "input",
                 "block_id": "message",
-                "optional": True,
                 "element": {
                     "type": "plain_text_input",
                     "multiline": True,
@@ -1079,10 +1078,13 @@ def fetch_channels(client: WebClient, logger: logging.Logger) -> List[Dict[str, 
             types="public_channel,private_channel",
             exclude_archived=True
         )
-        channels = [
-            {"text": {"type": "plain_text", "text": channel["name"]}, "value": channel["id"]}
-            for channel in response["channels"]
-        ]
+        channels = sorted(
+            [
+                {"text": {"type": "plain_text", "text": channel["name"]}, "value": channel["id"]}
+                for channel in response["channels"]
+            ],
+            key=lambda x: locale.strxfrm(x["text"]["text"])
+        )
         return channels
     except SlackApiError as e:
         logger.error(f"Error fetching channels: {e}")
@@ -1098,8 +1100,8 @@ def open_chat_attendance_modal(
     """
     try:
         event = load_event_from_db(event_id)
-
         user_id = body["user"]["id"]
+        user_in_event = load_user_in_event(event_id, user_id, logger)
         blocks = [
             {
                 "type": "header",
@@ -1125,6 +1127,17 @@ def open_chat_attendance_modal(
                 "element": {
                     "type": "radio_buttons",
                     "action_id": "attendance_selection",
+                    "initial_option": {
+                        "text": {
+                            "type": "plain_text",
+                            "text": f"{config.notcoming_training if event['type'] == 'Trénink' else config.notcoming_text}" 
+                            if user_in_event["status"] == "Not Coming"
+                            else f"{config.late_training if event['type'] == 'Trénink' else config.late_text}"
+                            if user_in_event["status"] == "Late" 
+                            else f"{config.coming_training if event['type'] == 'Trénink' else config.coming_text}"
+                        },
+                        "value": user_in_event["status"]
+                    },
                     "options": [
                         {
                             "text": {
@@ -1161,6 +1174,7 @@ def open_chat_attendance_modal(
                 "element": {
                     "type": "plain_text_input",
                     "action_id": "reason_input",
+                    "initial_value": user_in_event["note"] if user_in_event["note"] else "",
                     "placeholder": {
                         "type": "plain_text",
                         "text": "Zadejte důvod nebo poznámku..."
@@ -1171,7 +1185,6 @@ def open_chat_attendance_modal(
                     "text": "Důvod / Poznámka"
                 }
             }
-
         ]
 
         client.views_open(
