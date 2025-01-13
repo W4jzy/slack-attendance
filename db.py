@@ -138,7 +138,7 @@ def load_users_from_db(logger: Optional[logging.Logger] = None) -> List[Dict[str
 
 def load_user_in_event(event_id, user_id, logger: Optional[logging.Logger] = None) -> Optional[Dict[str, Any]]:
     query = """
-        SELECT u.user_id, u.name, p.status
+        SELECT u.user_id, u.name, p.status, p.note
         FROM users u
         LEFT JOIN participants p ON p.user_id = u.user_id AND p.event_id = %s
         WHERE u.user_id = %s;
@@ -173,6 +173,13 @@ def load_event_from_db(event_id, logger: Optional[logging.Logger] = None) -> Opt
         WHERE id = %s
     """
     return execute_query(query, (event_id,), fetchone=True, logger=logger)
+
+def load_event_from_db_by_id(event_id, logger: Optional[logging.Logger] = None) -> Optional[Dict[str, Any]]:
+    query = """
+        SELECT * FROM events 
+        WHERE id = %s
+    """
+    return execute_query(query, (event_id,), logger=logger)
 
 def load_participants_from_event(event_id, logger: Optional[logging.Logger] = None) -> List[Dict[str, Any]]:
     query = """

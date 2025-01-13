@@ -167,6 +167,10 @@ MENU_EDIT: Dict[str, Callable] = {
     "export_participants": lambda ack, body, client, logger: export_participants(ack, body, client, logger),
 }
 
+# Add to constants section
+REDIRECT_STATE = {}
+
+_SLACK_IDS = ("", "")
 
 class SlackBotError(Exception):
     """Base exception for slack bot related errors"""
@@ -175,6 +179,34 @@ class SlackBotError(Exception):
 # Initialize app and client
 app = App(token=SLACK_BOT_TOKEN)
 client = WebClient(token=SLACK_BOT_TOKEN)
+
+def set_slack_ids(team_id: str, app_id: str) -> None:
+    """Set Slack team and app IDs.
+    
+    Args:
+        team_id: Slack team ID
+        app_id: Slack app ID
+    """
+    global _SLACK_IDS
+    if not team_id or not app_id:
+        raise ValueError("Both team_id and app_id must be provided")
+    _SLACK_IDS = (team_id, app_id)
+
+def get_slack_ids() -> Tuple[str, str]:
+    """Get Slack team and app IDs.
+    
+    Returns:
+        Tuple containing (team_id, app_id)
+    """
+    return _SLACK_IDS
+
+def set_redirect_state(user_id: str, event_id: str) -> None:
+    """Set redirect state for user."""
+    REDIRECT_STATE[user_id] = event_id
+
+def get_redirect_state(user_id: str) -> Optional[str]:
+    """Get and clear redirect state for user."""
+    return REDIRECT_STATE.pop(user_id, None)
 
 def get_usergroup_members(
     client: WebClient,
@@ -340,11 +372,21 @@ def handle_refresh(ack: Any, body: Dict[str, Any], client: WebClient, logger: lo
 def handle_home_opened(event: Dict[str, Any], logger: logging.Logger) -> None:
     """Handle home tab opened event"""
     try:
-        if event["tab"] == "home":
-            user_id = event["user"]
-            update_home_view(client, user_id, logger)
+        
+        if event["tab"] != "home":
+            return
+            
+        user_id = event["user"]
+        
+        if event_id := get_redirect_state(user_id):
+            show_attendance(client, user_id, logger, DEFAULT_PAGE, event_id)
+            return
+        
+        set_slack_ids(event['view']["team_id"], event['view']['app_id'])  
+        update_home_view(client, user_id, logger)
     except Exception as e:
-        logger.error(f"Error in home opened handler: {datetime.now()} - {e}")
+        logger.error(f"Error in home opened: {datetime.now()} - {e}")
+
 
 @app.action("main_menu_overflow")
 def handle_main_menu_overflow(ack: Any, body: Dict[str, Any], client: WebClient, logger: logging.Logger) -> None:
@@ -737,7 +779,11 @@ def handle_open_filter(
     try:
         ack()
         user_id = body["user"]["id"]
-        saved_filter = body["actions"][0]["value"]
+        saved_filter = (
+            body["actions"][0]["value"] 
+            if body["actions"][0]["value"] in FILTER_OPTIONS.keys() 
+            else "all"
+        )
         
         blocks = build_filter_blocks(saved_filter)
         modal = {**FILTER_MODAL, "blocks": blocks}
@@ -1713,8 +1759,9 @@ def handle_share_event_submission(
         values = body["view"]["state"]["values"]
         text_input = values["message"]["text_input"]["value"]
         channel_id = values["share_channel_block"]["share_channel_select"]["selected_option"]["value"]
+        share_type = values["share_type_block"]["share_type_selection"]["selected_option"]["value"]
 
-        post_event_to_channel(client, user_id, event_id, channel_id, text_input, logger)
+        post_event_to_channel(client, user_id, event_id, channel_id, text_input, share_type, logger)
         
     except SlackApiError as e:
         logger.error(f"Slack API error in event sharing: {datetime.now()} - {e}")
@@ -1723,47 +1770,82 @@ def handle_share_event_submission(
         logger.error(f"Error sharing event: {datetime.now()} - {e}")
         client.chat_postMessage(channel=user_id, text=ERROR_MESSAGES["SHARE_ERROR"])
 
+
+def build_attendance_url(client: WebClient, logger: logging.Logger, event_id: str) -> str:
+    """Build deep link URL for attendance."""
+    team_id, app_id = get_slack_ids()
+    return f"slack://app?team={team_id}&id={app_id}&tab=home&event_id={event_id}"
+
+
 def post_event_to_channel(
     client: WebClient,
     user_id: str,
     event_id: int,
     channel_id: str,
     text: str,
+    share_type: str,
     logger: logging.Logger
 ) -> None:
     """Post event to channel."""
     try:
-        event = load_event_from_db(event_id)
-        event_text = text
-        
-        client.chat_postMessage(
-        channel=channel_id,
-        text=text,
-        blocks=[
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": text
-                }
-            },
-            {
-                "type": "actions",
-                "elements": [
+        if share_type == "Fill":
+            client.chat_postMessage(
+                channel=channel_id,
+                text=text,
+                blocks=[
                     {
-                        "type": "button",
+                        "type": "section",
                         "text": {
-                            "type": "plain_text",
-                            "text": "Zadat docházku"
-                        },
-                        "action_id": "attendance_modal",
-                        "value": f"event_id_{event_id}"
+                            "type": "mrkdwn",
+                            "text": text
+                        }
+                    },
+                    {
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "Zadat docházku"
+                                },
+                                "action_id": "attendance_modal",
+                                "value": f"event_id_{event_id}"
+                            }
+                        ]
                     }
                 ]
-            }
-        ]
-    )
-        
+            )
+        else:
+            client.chat_postMessage(
+                channel=channel_id,
+                text=text,
+                blocks=[
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": text
+                        }
+                    },
+                    {
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "Přejít do Docházky"
+                                },
+                                "action_id": "redirect_to_attendance",
+                                "value": f"event_id_{event_id}",
+                                "url": build_attendance_url(client, logger, str(event_id))
+                                }
+                        ]
+                    }
+                ]
+            )
+
         client.chat_postMessage(
             channel=user_id,
             text=MESSAGES["SHARE_SUCCESS"]
@@ -1802,6 +1884,34 @@ def handle_attendance_modal(
         raise
     except Exception as e:
         logger.error(f"Error opening attendance modal: {datetime.now()} - {e}")
+        raise
+
+@app.action("redirect_to_attendance")
+def handle_redirect_to_attendance(
+    ack: Any,
+    body: Dict[str, Any],
+    client: WebClient,
+    logger: logging.Logger
+) -> None:
+    """
+    Handle redirect to attendance view.
+    
+    Args:
+        ack: Acknowledge function
+        body: Request body
+        client: Slack client instance
+        logger: Logger instance
+    """
+    try:
+        ack()
+        event_id = body["actions"][0]["value"].split('_')[-1]
+        set_redirect_state(body["user"]["id"], event_id)
+        
+    except SlackApiError as e:
+        logger.error(f"Slack API error in redirect to attendance: {datetime.now()} - {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Error redirecting to attendance: {datetime.now()} - {e}")
         raise
 
 @app.view("chat_attendance_input")
