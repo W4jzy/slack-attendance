@@ -1129,50 +1129,53 @@ def open_chat_attendance_modal(
         ]
 
         if not is_locked:
+
+            element = {
+                "type": "radio_buttons",
+                "action_id": "attendance_selection",
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": f"{config.coming_training if event['type'] == 'Trénink' else config.coming_text}"
+                        },
+                        "value": "Coming"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": f"{config.late_training if event['type'] == 'Trénink' else config.late_text}"
+                        },
+                        "value": "Late"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": f"{config.notcoming_training if event['type'] == 'Trénink' else config.notcoming_text}"
+                        },
+                        "value": "Not Coming"
+                    }
+                ]
+            }
+
+            if user_in_event["status"]:
+                element["initial_option"] = {
+                    "text": {
+                        "type": "plain_text",
+                        "text": f"{config.notcoming_training if event['type'] == 'Trénink' else config.notcoming_text}" 
+                        if user_in_event["status"] == "Not Coming"
+                        else f"{config.late_training if event['type'] == 'Trénink' else config.late_text}"
+                        if user_in_event["status"] == "Late" 
+                        else f"{config.coming_training if event['type'] == 'Trénink' else config.coming_text}"
+                    },
+                    "value": user_in_event["status"]
+                }
+
             blocks.append(
                 {
                     "type": "input",
                     "block_id": "attendance_selection_block",
-                    "element": {
-                        "type": "radio_buttons",
-                        "action_id": "attendance_selection",
-                        "initial_option": {
-                            "text": {
-                                "type": "plain_text",
-                                "text": (
-                                    f"{config.notcoming_training if event['type'] == 'Trénink' else config.notcoming_text}" 
-                                    if user_in_event and user_in_event["status"] == "Not Coming"
-                                    else f"{config.late_training if event['type'] == 'Trénink' else config.late_text}"
-                                    if user_in_event and user_in_event["status"] == "Late" 
-                                    else f"{config.coming_training if event['type'] == 'Trénink' else config.coming_text}"
-                                )
-                            },
-                            "value": user_in_event["status"] if user_in_event else None
-                        } if user_in_event else None,
-                        "options": [
-                            {
-                                "text": {
-                                    "type": "plain_text",
-                                    "text": f"{config.coming_training if event['type'] == 'Trénink' else config.coming_text}"
-                                },
-                                "value": "Coming"
-                            },
-                            {
-                                "text": {
-                                    "type": "plain_text",
-                                    "text": f"{config.late_training if event['type'] == 'Trénink' else config.late_text}"
-                                },
-                                "value": "Late"
-                            },
-                            {
-                                "text": {
-                                    "type": "plain_text",
-                                    "text": f"{config.notcoming_training if event['type'] == 'Trénink' else config.notcoming_text}"
-                                },
-                                "value": "Not Coming"
-                            }
-                        ]
-                    },
+                    "element": element,
                     "label": {
                         "type": "plain_text",
                         "text": "Docházka"
