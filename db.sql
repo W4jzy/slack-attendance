@@ -75,7 +75,8 @@ CREATE TABLE `participants` (
 
 CREATE TABLE `users` (
   `user_id` varchar(50) NOT NULL,
-  `name` varchar(100) NOT NULL
+  `name` varchar(100) NOT NULL,
+  `category` varchar(100) DEFAULT NULL,
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_czech_ci;
 
 --

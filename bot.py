@@ -176,43 +176,6 @@ class SlackBotError(Exception):
 app = App(token=SLACK_BOT_TOKEN)
 client = WebClient(token=SLACK_BOT_TOKEN)
 
-def get_usergroup_members(
-    client: WebClient,
-    logger: Optional[logging.Logger] = None
-) -> Tuple[List[str], List[str]]:
-    """
-    Fetch active players from usergroups.
-    
-    Args:
-        client: Slack WebClient instance
-        logger: Optional logger instance
-    
-    Returns:
-        Tuple[List[str], List[str]]: Lists of men and women player IDs
-        
-    Raises:
-        SlackApiError: If usergroup members cannot be fetched
-    """
-    try:
-        o_active_players = client.usergroups_users_list(
-            usergroup=config.active_men_players
-        )["users"]
-        
-        w_active_players = client.usergroups_users_list(
-            usergroup=config.active_women_players
-        )["users"]
-        
-        return o_active_players, w_active_players
-        
-    except SlackApiError as e:
-        if logger:
-            logger.error(f"Slack API error fetching usergroup members: {datetime.now()} - {e}")
-        return [], []
-    except Exception as e:
-        if logger:
-            logger.error(f"Unexpected error fetching usergroup members: {datetime.now()} - {e}")
-        return [], []
-
 def get_user_by_id(
     user_id: str,
     logger: Optional[logging.Logger] = None
@@ -307,6 +270,60 @@ def show_loading_view(client: WebClient, user_id: str) -> None:
         }
     )
 
+def show_category_selection(client: WebClient, user_id: str, logger: logging.Logger) -> None:
+    """
+    Display category selection in home tab.
+    
+    Args:
+        client: Slack WebClient instance
+        user_id: User ID to show category selection to
+        logger: Logger instance
+    """
+    try:
+        client.views_publish(
+            user_id=user_id,
+            view={
+                "type": "home",
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": "*Vyberte kategorii:*"
+                        }
+                    },
+                    {
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": ":large_blue_circle: Open"
+                                },
+                                "action_id": "select_open_category"
+                            },
+                            {
+                                "type": "button",
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": ":red_circle: Women"
+                                },
+                                "action_id": "select_women_category"
+                            }
+                        ]
+                    }
+                ]
+            }
+        )
+    except SlackApiError as e:
+        logger.error(f"Slack API error showing category selection: {datetime.now()} - {e}")
+
+    except Exception as e:
+        logger.error(f"Error showing category selection: {datetime.now()} - {e}")
+
+
+
 def update_home_view(client: WebClient, user_id: str, logger: logging.Logger) -> None:
     """
     Update home view with attendance information.
@@ -321,7 +338,10 @@ def update_home_view(client: WebClient, user_id: str, logger: logging.Logger) ->
         username, real_name = get_user_info(client, user_id)
         show_loading_view(client, user_id)
         check_user(user_id, real_name)
-        show_attendance(client, user_id, logger)
+        if check_user_category(user_id):
+            show_attendance(client, user_id, logger)
+        else:
+            show_category_selection(client, user_id, logger)
     except (SlackApiError, SlackBotError) as e:
         logger.error(f"Error updating home view: {e}")
         raise SlackBotError(f"Failed to update home view: {e}")
@@ -949,12 +969,6 @@ def handle_save_settings(
 
         # Get group selections
         settings = {
-            "active_men_players": get_selected_option_value(
-                values, 'active_men_players_block', 'active_men_players_select'
-            ),
-            "active_women_players": get_selected_option_value(
-                values, 'active_women_players_block', 'active_women_players_select'
-            ),
             "export_channel": get_selected_option_value(
                 values, 'export_channel_block', 'export_channel_select'
             )
@@ -1091,7 +1105,7 @@ def delete_event_action(
         logger.error(f"Error deleting event: {datetime.now()} - {e}")
         client.chat_postMessage(
             channel=user_id,
-            text=MESSAGES["DELETE_ERROR"]
+            text=MESSAGES["DELETE_ERROR_MESSAGE"]
         )
         raise
 
@@ -1601,13 +1615,10 @@ def handle_participants_navigation(
         
         participants = load_participants_from_event(event_id)
         event = load_event_from_db(event_id)
-        o_active_players, w_active_players = get_usergroup_members(client, logger)
         
         blocks = create_participant_blocks(
             participants,
             event, 
-            o_active_players,
-            w_active_players,
             new_page
         )
         
@@ -1642,13 +1653,13 @@ def handle_empty_navigation(
 
         participant_ids = [participant['user_id'] for participant in participants]
 
-        o_active_players, w_active_players = get_usergroup_members(client, logger)
+        o_active_players = load_users_by_category("Open")
+        w_active_players = load_users_by_category("Women")
 
         users = load_users_from_db()
 
         users_dict = {user['user_id']: user['name'] for user in users}
 
-        remaining_participants = []
         missing_boys = []
         missing_girls = []
         for player_id in participant_ids:
@@ -1657,22 +1668,16 @@ def handle_empty_navigation(
                 o_active_players.remove(player_id)
             elif player_id in w_active_players:
                 w_active_players.remove(player_id)
-            else:
-                remaining_participants.append(player_name)
 
         missing_boys = sorted((users_dict.get(player_id, player_id) for player_id in o_active_players), key=locale.strxfrm)
         missing_girls = sorted((users_dict.get(player_id, player_id) for player_id in w_active_players), key=locale.strxfrm)
 
-        remaining_participants.sort()
-
         missing_boys_text = '\n'.join(missing_boys) if missing_boys else "\n"
         missing_girls_text = '\n'.join(missing_girls) if missing_girls else "\n"
-        remaining_text = '\n'.join(remaining_participants) if remaining_participants else "\n"
         
         blocks = create_empty_blocks(
             missing_boys_text,
             missing_girls_text,
-            remaining_text,
             new_page,
             event_id
         )
@@ -1837,6 +1842,44 @@ def handle_chat_attendance_submission(
     except Exception as e:
         logger.error(f"Error in chat attendance: {datetime.now()} - {e}")
         client.chat_postMessage(channel=user_id, text=ERROR_MESSAGES["ATTENDANCE_ERROR"])
+
+@app.action("select_women_category")
+def handle_select_women_category(ack: Any, body: Dict[str, Any], client: WebClient, logger: logging.Logger) -> None:
+    """
+    Handle selection of Women category.
+    
+    Args:
+        ack: Acknowledge function
+        body: Request body
+        client: Slack client instance
+        logger: Logger instance
+    """
+    try:
+        ack()
+        user_id = body["user"]["id"]
+        update_user_category(user_id, "Women", logger)
+        show_attendance(client, user_id, logger)
+    except Exception as e:
+        logger.error(f"Error handling Women category selection: {datetime.now()} - {e}")
+
+@app.action("select_open_category")
+def handle_select_open_category(ack: Any, body: Dict[str, Any], client: WebClient, logger: logging.Logger) -> None:
+    """
+    Handle selection of Open category.
+    
+    Args:
+        ack: Acknowledge function
+        body: Request body
+        client: Slack client instance
+        logger: Logger instance
+    """
+    try:
+        ack()
+        user_id = body["user"]["id"]
+        update_user_category(user_id, "Open", logger)
+        show_attendance(client, user_id, logger)
+    except Exception as e:
+        logger.error(f"Error handling Open category selection: {datetime.now()} - {e}")
 
 if __name__ == "__main__":
     config.load_settings()

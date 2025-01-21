@@ -9,8 +9,6 @@ class ConfigError(Exception):
 
 # Type-safe configuration dictionary
 config: Dict[str, Optional[str]] = {
-    "active_men_players": None,
-    "active_women_players": None,
     "admin_group": None,
     "export_channel": None,
     "coming_text": "Coming",
@@ -162,11 +160,9 @@ def update_global_variables(logger: Optional[logging.Logger] = None) -> None:
         ConfigError: If required configuration is missing
     """
     try:
-        global active_men_players, active_women_players, admin_group, export_channel
+        global admin_group, export_channel
         global coming_text, late_text, notcoming_text, coming_training, late_training, notcoming_training
 
-        active_men_players = config["active_men_players"]
-        active_women_players = config["active_women_players"]
         admin_group = config["admin_group"]
         export_channel = config["export_channel"]
         coming_text = config["coming_text"]

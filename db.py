@@ -176,7 +176,7 @@ def load_event_from_db(event_id, logger: Optional[logging.Logger] = None) -> Opt
 
 def load_participants_from_event(event_id, logger: Optional[logging.Logger] = None) -> List[Dict[str, Any]]:
     query = """
-        SELECT u.user_id, u.name, p.status, p.note
+        SELECT u.user_id, u.name, u.category, p.status, p.note
         FROM participants p
         JOIN users u ON p.user_id = u.user_id
         WHERE event_id = %s
@@ -266,6 +266,8 @@ def load_from_db(logger: Optional[logging.Logger] = None) -> List[Dict[str, Any]
 def add_user(name, user_id, logger: Optional[logging.Logger] = None) -> None:
     query = "INSERT INTO users (name, users_id) VALUES (%s, %s)"
     execute_query(query, (name, user_id), logger=logger)
+
+
 
 def add_event_to_db(name, start_time, end_time, lock_time, event_type, address, logger: Optional[logging.Logger] = None) -> None:
     start_time = datetime.fromtimestamp(start_time)
@@ -406,3 +408,66 @@ def check_user(user_id, name, logger: Optional[logging.Logger] = None) -> None:
             VALUES (%s, %s)
         """
         execute_query(query, (user_id, name), logger=logger)
+
+def update_user_category(user_id: str, category: str, logger: Optional[logging.Logger] = None) -> None:
+    """
+    Update the category of a user.
+    
+    Args:
+        user_id: User ID
+        category: New category
+        logger: Optional logger instance
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
+    query = """
+        UPDATE users
+        SET category = %s
+        WHERE user_id = %s
+    """
+    execute_query(query, (category, user_id), logger=logger)
+
+def check_user_category(user_id: str, logger: Optional[logging.Logger] = None) -> bool:
+    """
+    Check if a category exists for a user.
+    
+    Args:
+        user_id: User ID
+        logger: Optional logger instance
+        
+    Returns:
+        bool: True if category exists, False otherwise
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
+    query = """
+        SELECT category FROM users
+        WHERE user_id = %s
+    """
+    result = execute_query(query, (user_id,), fetchone=True, logger=logger)
+    return result is not None and result.get('category') is not None
+
+def load_users_by_category(category: str, logger: Optional[logging.Logger] = None) -> List[str]:
+    """
+    Load all user IDs by category.
+    
+    Args:
+        category: Category to filter users by
+        logger: Optional logger instance
+        
+    Returns:
+        List[str]: List of user IDs in the specified category
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
+    query = """
+        SELECT user_id FROM users
+        WHERE category = %s
+        ORDER BY name ASC
+    """
+    results = execute_query(query, (category,), logger=logger)
+    return [user['user_id'] for user in results]
+
