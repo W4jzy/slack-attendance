@@ -109,7 +109,8 @@ MESSAGES = {
     "ERROR": "Prosím, vyplňte všechna povinná pole.",
     "SUCCESS": "Událost {name} byla úspěšně přidána!",
     "DELETE_SUCCESS": "Událost byla úspěšně smazána!",
-    "DELETE_ERROR_MESSAGE": "Chyba při mazání události. Zkuste to prosím později."
+    "DELETE_ERROR_MESSAGE": "Chyba při mazání události. Zkuste to prosím později.",
+    "SHARE_SUCCESS": "Událost byla úspěšně sdílena!"
 }
 
 ERROR_MESSAGES = {
@@ -130,7 +131,9 @@ ERROR_MESSAGES = {
     "NO_USERS": "Žádní uživatelé nenalezeni.",
     "INVALID_SELECTION": "Neplatný výběr docházky.",
     "DATE_ERROR": "Chyba při načítání dat.",
-    "DB_ERROR": "Chyba při ukládání docházky."
+    "DB_ERROR": "Chyba při ukládání docházky.",
+    "SHARE_ERROR": "Chyba při sdílení události.",
+    "ATTENDANCE_ERROR": "Chyba při vyplnění docházky.",
 }
 
 EXPORT_BLOCKS = {
@@ -156,7 +159,8 @@ OVERFLOW_ACTIONS: Dict[str, Callable] = {
     "show_details": lambda body, client, logger, event_id: show_event_details(body, client, logger, event_id),
     "show_participants": lambda body, client, logger, event_id: show_participants(body, client, logger, event_id),
     "show_history": lambda body, client, logger, event_id: show_history(body, client, logger, event_id),
-    "show_empty": lambda body, client, logger, event_id: show_empty(body, client, logger, event_id)
+    "show_empty": lambda body, client, logger, event_id: show_empty(body, client, logger, event_id),
+    "share_event": lambda body, client, logger, event_id: share_event(body, client, logger, event_id)
 }
 
 MENU_EDIT: Dict[str, Callable] = {
@@ -1685,6 +1689,154 @@ def handle_empty_navigation(
     except Exception as e:
         logger.error(f"Error handling empty navigation: {datetime.now()} - {e}")
         raise
+
+@app.view("share_event")
+def handle_share_event_submission(
+    ack: Any,
+    body: Dict[str, Any],
+    client: WebClient,
+    logger: logging.Logger
+) -> None:
+    """
+    Handle event sharing submission.
+    
+    Args:
+        ack: Acknowledge function
+        body: Request body
+        client: Slack client instance
+        logger: Logger instance
+    """
+    try:
+        ack()
+        user_id = body["user"]["id"]
+        event_id = body["view"]["private_metadata"]
+        values = body["view"]["state"]["values"]
+        text_input = values["message"]["text_input"]["value"]
+        channel_id = values["share_channel_block"]["share_channel_select"]["selected_option"]["value"]
+
+        post_event_to_channel(client, user_id, event_id, channel_id, text_input, logger)
+        
+    except SlackApiError as e:
+        logger.error(f"Slack API error in event sharing: {datetime.now()} - {e}")
+        client.chat_postMessage(channel=user_id, text=ERROR_MESSAGES["SHARE_ERROR"])
+    except Exception as e:
+        logger.error(f"Error sharing event: {datetime.now()} - {e}")
+        client.chat_postMessage(channel=user_id, text=ERROR_MESSAGES["SHARE_ERROR"])
+
+def post_event_to_channel(
+    client: WebClient,
+    user_id: str,
+    event_id: int,
+    channel_id: str,
+    text: str,
+    logger: logging.Logger
+) -> None:
+    """Post event to channel."""
+    try:
+        event = load_event_from_db(event_id)
+        event_text = text
+        
+        client.chat_postMessage(
+        channel=channel_id,
+        text=text,
+        blocks=[
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": text
+                }
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Zadat docházku"
+                        },
+                        "action_id": "attendance_modal",
+                        "value": f"event_id_{event_id}"
+                    }
+                ]
+            }
+        ]
+    )
+        
+        client.chat_postMessage(
+            channel=user_id,
+            text=MESSAGES["SHARE_SUCCESS"]
+        )
+        
+    except SlackApiError as e:
+        logger.error(f"Slack API error in event sharing: {datetime.now()} - {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Error sharing event: {datetime.now()} - {e}")
+        raise
+
+@app.action("attendance_modal")
+def handle_attendance_modal(
+    ack: Any,
+    body: Dict[str, Any],
+    client: WebClient,
+    logger: logging.Logger
+) -> None:
+    """
+    Handle attendance modal opening.
+    
+    Args:
+        ack: Acknowledge function
+        body: Request body
+        client: Slack client instance
+        logger: Logger instance
+    """
+    try:
+        ack()
+        event_id = body["actions"][0]["value"].split('_')[-1]
+        open_chat_attendance_modal(body, client, logger, event_id)
+        
+    except SlackApiError as e:
+        logger.error(f"Slack API error in attendance modal: {datetime.now()} - {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Error opening attendance modal: {datetime.now()} - {e}")
+        raise
+
+@app.view("chat_attendance_input")
+def handle_chat_attendance_submission(
+    ack: Any,
+    body: Dict[str, Any],
+    client: WebClient,
+    logger: logging.Logger
+) -> None:
+    """
+    Handle chat attendance submission.
+    
+    Args:
+        ack: Acknowledge function
+        body: Request body
+        client: Slack client instance
+        logger: Logger instance
+    """
+    try:
+        ack()
+        user_id = body["user"]["id"]
+        event_id = body["view"]["private_metadata"]
+        values = body["view"]["state"]["values"]
+        selection = values["attendance_selection_block"]["attendance_selection"]["selected_option"]["value"]
+        note = values["reason"]["reason_input"]["value"]
+
+        insert_participation(event_id, user_id, selection, note, logger)
+        #show_attendance(client, user_id, logger)
+        
+    except SlackApiError as e:
+        logger.error(f"Slack API error in chat attendance: {datetime.now()} - {e}")
+        client.chat_postMessage(channel=user_id, text=ERROR_MESSAGES["ATTENDANCE_ERROR"])
+    except Exception as e:
+        logger.error(f"Error in chat attendance: {datetime.now()} - {e}")
+        client.chat_postMessage(channel=user_id, text=ERROR_MESSAGES["ATTENDANCE_ERROR"])
 
 if __name__ == "__main__":
     config.load_settings()

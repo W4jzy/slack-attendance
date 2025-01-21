@@ -250,6 +250,48 @@ def build_attendance_blocks(
             event_type = f":large_yellow_square: {event['type']}"
 
         if config.active_men_players and config.active_women_players:
+            options = [
+                {
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Zobrazit účastníky"
+                    },
+                    "value": f"show_participants_{event['id']}"
+                },
+                {
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Zobrazit detaily"
+                    },
+                    "value": f"show_details_{event['id']}"
+                },
+                {
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Zobrazit historii"
+                    },
+                    "value": f"show_history_{event['id']}"
+                },
+                {
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Zobrazit nevyplněné"
+                    },
+                    "value": f"show_empty_{event['id']}"
+                }
+            ]
+
+            if is_admin:
+                options.append(
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Sdílet událost"
+                        },
+                        "value": f"share_event_{event['id']}"
+                    }
+                )
+
             blocks.append({
                 "type": "section",
                 "text": {
@@ -258,41 +300,46 @@ def build_attendance_blocks(
                 },
                 "accessory": {
                     "type": "overflow",
-                    "options": [
-                        {
-                            "text": {
-                                "type": "plain_text",
-                                "text": "Zobrazit účastníky"
-                            },
-                            "value": f"show_participants_{event['id']}"
-                        },
-                        {
-                            "text": {
-                                "type": "plain_text",
-                                "text": "Zobrazit detaily"
-                            },
-                            "value": f"show_details_{event['id']}"
-                        },
-                        {
-                            "text": {
-                                "type": "plain_text",
-                                "text": "Zobrazit historii"
-                            },
-                            "value": f"show_history_{event['id']}"
-                        },
-                        {
-                            "text": {
-                                "type": "plain_text",
-                                "text": "Zobrazit nevyplněné"
-                            },
-                            "value": f"show_empty_{event['id']}"
-                        }
-                        
-                    ],
+                    "options": options,
                     "action_id": f"overflow_menu_{event['id']}"
                 }
             })
         else:
+            options = [
+                {
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Zobrazit účastníky"
+                    },
+                    "value": f"show_participants_{event['id']}"
+                },
+                {
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Zobrazit detaily"
+                    },
+                    "value": f"show_details_{event['id']}"
+                },
+                {
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Zobrazit historii"
+                    },
+                    "value": f"show_history_{event['id']}"
+                }
+            ]
+
+            if is_admin:
+                options.append(
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Sdílet událost"
+                        },
+                        "value": f"share_event_{event['id']}"
+                    }
+                )
+
             blocks.append({
                 "type": "section",
                 "text": {
@@ -301,29 +348,7 @@ def build_attendance_blocks(
                 },
                 "accessory": {
                     "type": "overflow",
-                    "options": [
-                        {
-                            "text": {
-                                "type": "plain_text",
-                                "text": "Zobrazit účastníky"
-                            },
-                            "value": f"show_participants_{event['id']}"
-                        },
-                        {
-                            "text": {
-                                "type": "plain_text",
-                                "text": "Zobrazit detaily"
-                            },
-                            "value": f"show_details_{event['id']}"
-                        },
-                        {
-                            "text": {
-                                "type": "plain_text",
-                                "text": "Zobrazit historii"
-                            },
-                            "value": f"show_history_{event['id']}"
-                        }                            
-                    ],
+                    "options": options,
                     "action_id": f"overflow_menu_{event['id']}"
                 }
             })
@@ -964,3 +989,246 @@ def show_empty(
     except Exception as e:
         logger.error(f"Error showing empty: {datetime.now()} - {e}")
         raise
+
+def share_event(
+    body: Dict[str, Any],
+    client: WebClient,
+    logger: logging.Logger,
+    event_id: str
+) -> None:
+    """
+    Opens a modal for share event.
+    """
+    try:
+        user_id = body["user"]["id"]
+        channels = fetch_channels(client, logger)
+        blocks = [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "Sdílet událost",
+                    "emoji": True
+                }
+            },
+            {
+                "type": "input",
+                "block_id": "share_channel_block",
+                "element": {
+                    "type": "static_select",
+                    "action_id": "share_channel_select",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "Vyberte channel pro sdílení"
+                    },
+                    "options": channels,
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Channel pro sdílení"
+                }
+            },
+            {
+                "type": "input",
+                "block_id": "message",
+                "element": {
+                    "type": "plain_text_input",
+                    "multiline": True,
+                    "action_id": "text_input",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": "Zadejte zprávu..."
+                    }
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Zpráva"
+                }
+            }
+        ]
+
+        client.views_open(
+            trigger_id=body["trigger_id"],
+            view={
+                "type": "modal",
+                "callback_id": "share_event",
+                "title": {
+                    "type": "plain_text",
+                    "text": "Sdílet událost"
+                },
+                "close": {
+                    "type": "plain_text",
+                    "text": "Zavřít"
+                },
+                "submit": {
+                    "type": "plain_text",
+                    "text": "Potvrdit"
+                },
+                "private_metadata": event_id,
+                "blocks": blocks
+            }
+        )
+    except Exception as e:
+         logger.error(f"Error opening modal: {e}")
+
+def fetch_channels(client: WebClient, logger: logging.Logger) -> List[Dict[str, Any]]:
+    """Fetch channels from Slack"""
+    try:
+        response = client.conversations_list(
+            types="public_channel,private_channel",
+            exclude_archived=True
+        )
+        channels = sorted(
+            [
+                {"text": {"type": "plain_text", "text": channel["name"]}, "value": channel["id"]}
+                for channel in response["channels"]
+            ],
+            key=lambda x: locale.strxfrm(x["text"]["text"])
+        )
+        return channels
+    except SlackApiError as e:
+        logger.error(f"Error fetching channels: {e}")
+
+def open_chat_attendance_modal(
+    body: Dict[str, Any],
+    client: WebClient,
+    logger: logging.Logger,
+    event_id: int
+) -> None:
+    """
+    Opens a modal for chat attendance input.
+    """
+    try:
+        event = load_event_from_db(event_id)
+
+        is_locked = datetime.now() > event["lock_time"]
+        start_time_str = event['start_time'].strftime('%d.%m.%Y %H:%M')
+        start_time_day = event['start_time'].strftime('%A')
+        
+        user_id = body["user"]["id"]
+        user_in_event = load_user_in_event(event_id, user_id, logger)
+        blocks=[
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "Vyplnit docházku na událost",
+                    "emoji": True
+                }
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*{event['name']}*\n{DAY_SHORT.get(start_time_day)} {start_time_str}" + (" - `Uzamčeno`" if is_locked else ""),
+                }
+            },
+            {
+                "type": "divider"
+            }
+        ]
+
+        if not is_locked:
+
+            element = {
+                "type": "radio_buttons",
+                "action_id": "attendance_selection",
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": f"{config.coming_training if event['type'] == 'Trénink' else config.coming_text}"
+                        },
+                        "value": "Coming"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": f"{config.late_training if event['type'] == 'Trénink' else config.late_text}"
+                        },
+                        "value": "Late"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": f"{config.notcoming_training if event['type'] == 'Trénink' else config.notcoming_text}"
+                        },
+                        "value": "Not Coming"
+                    }
+                ]
+            }
+
+            if user_in_event["status"]:
+                element["initial_option"] = {
+                    "text": {
+                        "type": "plain_text",
+                        "text": f"{config.notcoming_training if event['type'] == 'Trénink' else config.notcoming_text}" 
+                        if user_in_event["status"] == "Not Coming"
+                        else f"{config.late_training if event['type'] == 'Trénink' else config.late_text}"
+                        if user_in_event["status"] == "Late" 
+                        else f"{config.coming_training if event['type'] == 'Trénink' else config.coming_text}"
+                    },
+                    "value": user_in_event["status"]
+                }
+
+            blocks.append(
+                {
+                    "type": "input",
+                    "block_id": "attendance_selection_block",
+                    "element": element,
+                    "label": {
+                        "type": "plain_text",
+                        "text": "Docházka"
+                    }
+                }
+            )
+
+        if not is_locked:
+            blocks.append(
+                {
+                    "type": "input",
+                    "block_id": "reason",
+                    "optional": True,
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "reason_input",
+                        "initial_value": user_in_event["note"] if user_in_event["note"] else "",
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "Zadejte důvod nebo poznámku..."
+                        }
+                    },
+                    "label": {
+                        "type": "plain_text",
+                        "text": "Důvod / Poznámka"
+                    }
+                }
+            )
+
+        modal_view = {
+            "type": "modal",
+            "callback_id": "chat_attendance_input",
+            "title": {
+                "type": "plain_text",
+                "text": "Vyplnit docházku"
+            },
+            "close": {
+                "type": "plain_text",
+                "text": "Zavřít"
+            },
+            "private_metadata": event_id,
+            "blocks": blocks
+        }
+
+        if not is_locked:
+            modal_view["submit"] = {
+                "type": "plain_text",
+                "text": "Potvrdit"
+            }
+
+        client.views_open(
+            trigger_id=body["trigger_id"],
+            view=modal_view
+        )
+    except Exception as e:
+         logger.error(f"Error opening modal: {e}")

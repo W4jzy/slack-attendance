@@ -138,7 +138,7 @@ def load_users_from_db(logger: Optional[logging.Logger] = None) -> List[Dict[str
 
 def load_user_in_event(event_id, user_id, logger: Optional[logging.Logger] = None) -> Optional[Dict[str, Any]]:
     query = """
-        SELECT u.user_id, u.name, p.status
+        SELECT u.user_id, u.name, p.status, p.note
         FROM users u
         LEFT JOIN participants p ON p.user_id = u.user_id AND p.event_id = %s
         WHERE u.user_id = %s;
