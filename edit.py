@@ -4,18 +4,44 @@ from slack_sdk.errors import SlackApiError
 from datetime import datetime
 import logging
 import config
-from db import load_events_by_date_from_db, load_event_from_db, load_user_in_event
+from db import load_events_by_date_from_db, load_event_from_db, load_user_in_event, load_user_from_db
 
 class EditError(Exception):
     """Base exception for edit related errors"""
     pass
 
-def build_header_blocks(has_export: bool = False) -> List[Dict[str, Any]]:
-    """Build header blocks for edit view"""
-    blocks = []
-    
-    if has_export:
-        blocks.append({
+def build_user_category_blocks() -> List[Dict[str, Any]]:
+    """Build blocks for user category selection and update"""
+    return [
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": "*Vyberte hráče pro úpravu kategorie*"},
+        },
+        {
+            "type": "actions",
+            "block_id": "user_category_selection_section",
+            "elements": [
+                {
+                    "type": "external_select",
+                    "action_id": "user_selection",
+                    "placeholder": {"type": "plain_text", "text": "Vyberte hráče..."},
+                    "min_query_length": 2
+                },
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "text": {"type": "plain_text", "text": "Potvrdit"},
+                    "action_id": "select_user_category"
+                }
+            ]
+        },
+        {"type": "divider"}
+    ]
+
+def build_export_blocks() -> List[Dict[str, Any]]:
+    """Build blocks for export view"""
+    return [
+        {
             "type": "actions",
             "elements": [{
                 "type": "overflow",
@@ -25,9 +51,12 @@ def build_header_blocks(has_export: bool = False) -> List[Dict[str, Any]]:
                 }],
                 "action_id": "edit_overflow"
             }]
-        })
+        }
+    ]
 
-    blocks.extend([
+def build_back_blocks() -> List[Dict[str, Any]]:
+    """Build blocks for back navigation"""
+    return [
         {
             "type": "actions",
             "elements": [{
@@ -35,7 +64,19 @@ def build_header_blocks(has_export: bool = False) -> List[Dict[str, Any]]:
                 "text": {"type": "plain_text", "text": "Zpět"},
                 "action_id": "go_to_attendance"
             }]
-        },
+        }
+    ]
+
+def build_header_blocks(has_export: bool = False) -> List[Dict[str, Any]]:
+    """Build header blocks for edit view"""
+    blocks = []
+    
+    if has_export:
+        blocks.extend(build_export_blocks())
+
+    blocks.extend(build_back_blocks())
+
+    blocks.extend([
         {
             "type": "input",
             "block_id": "date_picker",
@@ -44,7 +85,7 @@ def build_header_blocks(has_export: bool = False) -> List[Dict[str, Any]]:
                 "action_id": "date_select",
                 "placeholder": {"type": "plain_text", "text": "Vyberte datum"}
             },
-            "label": {"type": "plain_text", "text": "Datum"}
+            "label": {"type": "plain_text", "text": "Vyberte datum pro zobrazení událostí"}
         },
         {
             "type": "actions",
@@ -57,7 +98,7 @@ def build_header_blocks(has_export: bool = False) -> List[Dict[str, Any]]:
         },
         {"type": "divider"}
     ])
-    
+
     return blocks
 
 def build_event_blocks(event: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -167,6 +208,7 @@ def show_edit_attendance(client: WebClient, user_id: str, logger: logging.Logger
     """Show initial edit attendance view"""
     try:
         blocks = build_header_blocks(has_export=config.export_channel != "None")
+        blocks.extend(build_user_category_blocks())
         client.views_publish(user_id=user_id, view={"type": "home", "blocks": blocks})
     except Exception as e:
         logger.error(f"Error showing edit attendance: {e}")
@@ -225,3 +267,67 @@ def show_edit_attendance_players(
     except Exception as e:
         logger.error(f"Error showing edit attendance players: {e}")
         raise EditError("Failed to show attendance players")
+
+def show_edit_player_category(
+    client: WebClient,
+    logger: logging.Logger,
+    user_id: str,
+    view_user_id: str
+) -> None:
+    """Show player category edit view"""
+    try:
+        blocks = build_back_blocks()
+        blocks.extend(build_user_category_blocks())
+
+        # Add user info
+        user_info = load_user_from_db(user_id)
+        if not user_info:
+            raise EditError(f"User with ID {user_id} not found")
+
+        user_name = user_info['name']
+        user_category = user_info.get('category')
+
+        blocks.extend([
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "Úprava kategorie hráče", "emoji": True}
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*{user_name}*"
+                }
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": f"{':large_blue_circle: ' if user_category == 'Open' else ''}Open"
+                        },
+                        "value": user_id,
+                        "action_id": "user_category_open",
+                        **({"style": "primary"} if user_category == "Open" else {})
+                    },
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": f"{'🔴 ' if user_category == 'Women' else ''}Women"
+                        },
+                        "value": user_id,
+                        "action_id": "user_category_women",
+                        **({"style": "primary"} if user_category == "Women" else {})
+                    }
+                ]
+            },
+            {"type": "divider"}
+        ])
+
+        client.views_publish(user_id=view_user_id, view={"type": "home", "blocks": blocks})
+    except Exception as e:
+        logger.error(f"Error showing edit player category: {e}")
+        raise EditError("Failed to show player category")

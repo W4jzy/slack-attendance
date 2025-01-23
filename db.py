@@ -471,3 +471,9 @@ def load_users_by_category(category: str, logger: Optional[logging.Logger] = Non
     results = execute_query(query, (category,), logger=logger)
     return [user['user_id'] for user in results]
 
+def load_user_from_db(user_id, logger: Optional[logging.Logger] = None) -> Optional[Dict[str, Any]]:
+    query = """
+        SELECT * FROM users 
+        WHERE user_id = %s
+    """
+    return execute_query(query, (user_id,), fetchone=True, logger=logger)

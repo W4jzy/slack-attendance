@@ -1881,6 +1881,99 @@ def handle_select_open_category(ack: Any, body: Dict[str, Any], client: WebClien
     except Exception as e:
         logger.error(f"Error handling Open category selection: {datetime.now()} - {e}")
 
+@app.action("select_user_category")
+def handle_select_user_category(
+    ack: Any,
+    body: Dict[str, Any],
+    client: WebClient,
+    logger: logging.Logger
+) -> None:
+    """
+    Handle selection of user for category editing.
+    
+    Args:
+        ack: Acknowledge function
+        body: Request body
+        client: Slack client instance
+        logger: Logger instance
+    """
+    try:
+        ack()
+        if not (view_user_id := body.get("user", {}).get("id")):
+            raise ValueError("User ID not found in request body")
+        
+        values = body['view']['state']['values']
+        if not (selected_user := values.get('user_category_selection_section', {})
+                .get('user_selection', {})
+                .get('selected_option', {})
+                .get('value')):
+            raise ValueError("Selected user not found")
+
+        show_edit_player_category(
+            client=client,
+            logger=logger,
+            user_id=selected_user,
+            view_user_id=view_user_id
+        )
+        
+    except ValueError as e:
+        logger.error(f"Validation error: {datetime.now()} - {e}")
+        client.chat_postMessage(channel=view_user_id, text=str(e))
+    except SlackApiError as e:
+        logger.error(f"Slack API error: {datetime.now()} - {e}")
+        client.chat_postMessage(channel=view_user_id, text="Chyba při výběru uživatele.")
+    except Exception as e:
+        logger.error(f"Error handling select user category: {datetime.now()} - {e}")
+        client.chat_postMessage(channel=view_user_id, text="Chyba při výběru uživatele.")
+
+@app.action("user_category_open")
+def handle_change_to_open_category(ack: Any, body: Dict[str, Any], client: WebClient, logger: logging.Logger) -> None:
+    """
+    Handle selection of Open category.
+    
+    Args:
+        ack: Acknowledge function
+        body: Request body
+        client: Slack client instance
+        logger: Logger instance
+    """
+    try:
+        ack()
+        selected_user = body["actions"][0]["value"]
+        update_user_category(selected_user, "Open", logger)
+        show_edit_player_category(
+            client=client,
+            logger=logger,
+            user_id=selected_user,
+            view_user_id=body["user"]["id"]
+        )
+    except Exception as e:
+        logger.error(f"Error handling change to Open category: {datetime.now()} - {e}")
+
+@app.action("user_category_women")
+def handle_change_to_women_category(ack: Any, body: Dict[str, Any], client: WebClient, logger: logging.Logger) -> None:
+    """
+    Handle selection of Women category.
+    
+    Args:
+        ack: Acknowledge function
+        body: Request body
+        client: Slack client instance
+        logger: Logger instance
+    """
+    try:
+        ack()
+        selected_user = body["actions"][0]["value"]
+        update_user_category(selected_user, "Women", logger)
+        show_edit_player_category(
+            client=client,
+            logger=logger,
+            user_id=selected_user,
+            view_user_id=body["user"]["id"]
+        )
+    except Exception as e:
+        logger.error(f"Error handling change to Women category: {datetime.now()} - {e}")
+
 if __name__ == "__main__":
     config.load_settings()
     handler = SocketModeHandler(app, SLACK_APP_TOKEN)
