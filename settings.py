@@ -53,10 +53,8 @@ def get_initial_option(id: Optional[str], array: List[Dict[str, Any]]) -> Tuple[
             return item["text"]["text"], item["value"]
     return DEFAULT_OPTION["text"]["text"], DEFAULT_OPTION["value"]
 
-def build_settings_blocks(user_groups: List[Dict], channels: List[Dict], config_values: Dict) -> List[Dict]:
+def build_settings_blocks(channels: List[Dict], config_values: Dict) -> List[Dict]:
     """Build settings view blocks"""
-    act_m_n, act_m_v = get_initial_option(config_values["active_men_players"], user_groups)
-    act_w_n, act_w_v = get_initial_option(config_values["active_women_players"], user_groups)
     exp_n, exp_v = get_initial_option(config_values["export_channel"], channels)
 
     return [
@@ -75,61 +73,6 @@ def build_settings_blocks(user_groups: List[Dict], channels: List[Dict], config_
                 "type": "plain_text",
                 "text": "Nastavení aplikace",
                 "emoji": True
-            }
-        },
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": "*Vyberte uživatelské skupiny pro jednotlivé role:*"
-            }
-        },
-        {
-            "type": "input",
-            "block_id": "active_men_players_block",
-            "element": {
-                "type": "static_select",
-                "action_id": "active_men_players_select",
-                "placeholder": {
-                    "type": "plain_text",
-                    "text": "Vyberte skupinu"
-                },
-                "options": user_groups,
-                "initial_option": {
-                    "text": {
-                        "type": "plain_text",
-                        "text": act_m_n,
-                    },
-                    "value": act_m_v
-                },
-            },
-            "label": {
-                "type": "plain_text",
-                "text": "Aktivni Open hráči"
-            }
-        },
-        {
-            "type": "input",
-            "block_id": "active_women_players_block",
-            "element": {
-                "type": "static_select",
-                "action_id": "active_women_players_select",
-                "placeholder": {
-                    "type": "plain_text",
-                    "text": "Vyberte skupinu"
-                },
-                "options": user_groups,
-                "initial_option": {
-                    "text": {
-                        "type": "plain_text",
-                        "text": act_w_n,
-                    },
-                    "value": act_w_v
-                },
-            },
-            "label": {
-                "type": "plain_text",
-                "text": "Aktivní Women hráčky"
             }
         },
         {
@@ -265,11 +208,10 @@ def show_settings(client: WebClient, user_id: str, logger: logging.Logger) -> No
     """
     try:
         # Fetch required data
-        user_groups = fetch_user_groups(client, logger)
         channels = fetch_channels(client, logger)
 
         # Build and publish view
-        blocks = build_settings_blocks(user_groups, channels, config.config)
+        blocks = build_settings_blocks(channels, config.config)
         
         client.views_publish(
             user_id=user_id,

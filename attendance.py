@@ -4,7 +4,6 @@ from slack_sdk.errors import SlackApiError
 from datetime import datetime
 import logging
 from db import *
-from bot import get_usergroup_members
 import config
 import locale
 from dataclasses import dataclass, field
@@ -62,7 +61,6 @@ class ParticipantCount(NamedTuple):
 class ParticipantGroup:
     men: List[str] = field(default_factory=list)
     women: List[str] = field(default_factory=list)
-    other: List[str] = field(default_factory=list)
 
 def build_attendance_blocks(
     events: List[Dict],
@@ -249,109 +247,60 @@ def build_attendance_blocks(
         else:
             event_type = f":large_yellow_square: {event['type']}"
 
-        if config.active_men_players and config.active_women_players:
-            options = [
-                {
-                    "text": {
-                        "type": "plain_text",
-                        "text": "Zobrazit účastníky"
-                    },
-                    "value": f"show_participants_{event['id']}"
-                },
-                {
-                    "text": {
-                        "type": "plain_text",
-                        "text": "Zobrazit detaily"
-                    },
-                    "value": f"show_details_{event['id']}"
-                },
-                {
-                    "text": {
-                        "type": "plain_text",
-                        "text": "Zobrazit historii"
-                    },
-                    "value": f"show_history_{event['id']}"
-                },
-                {
-                    "text": {
-                        "type": "plain_text",
-                        "text": "Zobrazit nevyplněné"
-                    },
-                    "value": f"show_empty_{event['id']}"
-                }
-            ]
-
-            if is_admin:
-                options.append(
-                    {
-                        "text": {
-                            "type": "plain_text",
-                            "text": "Sdílet událost"
-                        },
-                        "value": f"share_event_{event['id']}"
-                    }
-                )
-
-            blocks.append({
-                "type": "section",
+        options = [
+            {
                 "text": {
-                    "type": "mrkdwn",
-                    "text": f"*{event['name']}*\n{DAY_SHORT.get(start_time_day)} {start_time_str}" + (" - `Uzamčeno`" if is_locked else "") + f"\n{event_type}",
+                    "type": "plain_text",
+                    "text": "Zobrazit účastníky"
                 },
-                "accessory": {
-                    "type": "overflow",
-                    "options": options,
-                    "action_id": f"overflow_menu_{event['id']}"
-                }
-            })
-        else:
-            options = [
-                {
-                    "text": {
-                        "type": "plain_text",
-                        "text": "Zobrazit účastníky"
-                    },
-                    "value": f"show_participants_{event['id']}"
-                },
-                {
-                    "text": {
-                        "type": "plain_text",
-                        "text": "Zobrazit detaily"
-                    },
-                    "value": f"show_details_{event['id']}"
-                },
-                {
-                    "text": {
-                        "type": "plain_text",
-                        "text": "Zobrazit historii"
-                    },
-                    "value": f"show_history_{event['id']}"
-                }
-            ]
-
-            if is_admin:
-                options.append(
-                    {
-                        "text": {
-                            "type": "plain_text",
-                            "text": "Sdílet událost"
-                        },
-                        "value": f"share_event_{event['id']}"
-                    }
-                )
-
-            blocks.append({
-                "type": "section",
+                "value": f"show_participants_{event['id']}"
+            },
+            {
                 "text": {
-                    "type": "mrkdwn",
-                    "text": f"*{event['name']}* - {start_time_str}" + (" - Uzamčeno" if is_locked else "") + f"\n{event['type']}",
+                    "type": "plain_text",
+                    "text": "Zobrazit detaily"
                 },
-                "accessory": {
-                    "type": "overflow",
-                    "options": options,
-                    "action_id": f"overflow_menu_{event['id']}"
+                "value": f"show_details_{event['id']}"
+            },
+            {
+                "text": {
+                    "type": "plain_text",
+                    "text": "Zobrazit historii"
+                },
+                "value": f"show_history_{event['id']}"
+            },
+            {
+                "text": {
+                    "type": "plain_text",
+                    "text": "Zobrazit nevyplněné"
+                },
+                "value": f"show_empty_{event['id']}"
+            }
+        ]
+
+        if is_admin:
+            options.append(
+                {
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Sdílet událost"
+                    },
+                    "value": f"share_event_{event['id']}"
                 }
-            })
+            )
+
+        blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*{event['name']}*\n{DAY_SHORT.get(start_time_day)} {start_time_str}" + (" - `Uzamčeno`" if is_locked else "") + f"\n{event_type}",
+            },
+            "accessory": {
+                "type": "overflow",
+                "options": options,
+                "action_id": f"overflow_menu_{event['id']}"
+            }
+        })
 
         blocks.append({
             "type": "section",
@@ -608,9 +557,7 @@ def format_participant_name(participant: Dict[str, Any]) -> str:
 
 def get_participant_groups(
     participants: List[Dict[str, Any]],
-    status: str,
-    o_active_players: List[str],
-    w_active_players: List[str]
+    status: str
 ) -> ParticipantGroup:
     """Group participants by gender and status."""
     group = ParticipantGroup()
@@ -619,12 +566,11 @@ def get_participant_groups(
             continue
             
         name = format_participant_name(p)
-        if p['user_id'] in o_active_players:
+        if p['category'] == "Open":
             group.men.append(name)
-        elif p['user_id'] in w_active_players:
+        elif p['category'] == "Women":
             group.women.append(name)
-        else:
-            group.other.append(name)
+
     return group
 
 def format_status_section(
@@ -633,11 +579,11 @@ def format_status_section(
     group: ParticipantGroup
 ) -> str:
     """Format status section with counts and names."""
-    total = len(group.men) + len(group.women) + len(group.other)
+    total = len(group.men) + len(group.women)
     return (
         f"{emoji} {total} *{status_text}* "
         f"( {len(group.men)} :mens: {len(group.women)} :womens: )\n"
-        f"{chr(10).join(group.men + group.women + group.other)}\n"
+        f"{chr(10).join(group.men + group.women)}\n"
     )
 
 def create_participant_navigation(current_page: int, event_id: str) -> Dict[str, Any]:
@@ -652,7 +598,7 @@ def create_participant_navigation(current_page: int, event_id: str) -> Dict[str,
             "style": "primary"
         })
     
-    if current_page < 2:  # 3 pages total (0,1,2)
+    if current_page < 2:
         elements.append({
             "type": "button",
             "text": {"type": "plain_text", "text": "Další ▶️"},
@@ -669,8 +615,6 @@ def create_participant_navigation(current_page: int, event_id: str) -> Dict[str,
 def create_participant_blocks(
     participants: List[Dict], 
     event: Dict,
-    o_active_players: List[str],
-    w_active_players: List[str],
     page: int
 ) -> List[Dict]:
     """Create blocks for participant view with pagination."""
@@ -686,7 +630,7 @@ def create_participant_blocks(
         else config.notcoming_text
     )
     
-    group = get_participant_groups(participants, current_status, o_active_players, w_active_players)
+    group = get_participant_groups(participants, current_status)
     section = format_status_section(status_text, emoji, group)
     
     blocks = [{
@@ -711,13 +655,10 @@ def show_participants(
     try:
         participants = load_participants_from_event(event_id)
         event = load_event_from_db(event_id)
-        o_active_players, w_active_players = get_usergroup_members(client, logger)
         
         blocks = create_participant_blocks(
             participants, 
             event,
-            o_active_players,
-            w_active_players,
             page
         )
         
@@ -859,18 +800,6 @@ def update_history_view(
         logger.error(f"Error updating history view: {datetime.now()} - {e}")
         raise
 
-def get_missing_players(
-    participant_ids: Set[str],
-    active_players: List[str],
-    users_dict: Dict[str, str]
-) -> List[str]:
-    """Get sorted list of missing players."""
-    missing = set(active_players) - set(participant_ids)
-    return sorted(
-        (users_dict.get(player_id, player_id) for player_id in missing),
-        key=locale.strxfrm
-    )
-
 def create_empty_navigation(current_page: int, event_id: str) -> Dict[str, Any]:
     """Create navigation for empty players status pages."""
     elements = []
@@ -883,7 +812,7 @@ def create_empty_navigation(current_page: int, event_id: str) -> Dict[str, Any]:
             "style": "primary"
         })
     
-    if current_page < 2:  # 3 pages total (0,1,2)
+    if current_page < 1:
         elements.append({
             "type": "button",
             "text": {"type": "plain_text", "text": "Další ▶️"},
@@ -900,15 +829,13 @@ def create_empty_navigation(current_page: int, event_id: str) -> Dict[str, Any]:
 def create_empty_blocks(
     missing_boys: List[str],
     missing_girls: List[str],
-    remaining: List[str],
     page: int = 0,
     event_id: str = ""
 ) -> List[Dict]:
     """Create blocks for empty modal with pagination."""
     status_map = [
         (":mens: *Nevyplnění open hráči*", missing_boys),
-        (":womens: *Nevyplněné women hráčky*", missing_girls),
-        ("⚪ *Nazařazení hráči*", remaining)
+        (":womens: *Nevyplněné women hráčky*", missing_girls)
     ]
     current_title, current_list = status_map[page]
     
@@ -938,13 +865,13 @@ def show_empty(
 
         participant_ids = [participant['user_id'] for participant in participants]
 
-        o_active_players, w_active_players = get_usergroup_members(client, logger)
+        o_active_players = load_users_by_category("Open")
+        w_active_players = load_users_by_category("Women")
 
         users = load_users_from_db()
 
         users_dict = {user['user_id']: user['name'] for user in users}
 
-        remaining_participants = []
         missing_boys = []
         missing_girls = []
         for player_id in participant_ids:
@@ -953,22 +880,16 @@ def show_empty(
                 o_active_players.remove(player_id)
             elif player_id in w_active_players:
                 w_active_players.remove(player_id)
-            else:
-                remaining_participants.append(player_name)
 
         missing_boys = sorted((users_dict.get(player_id, player_id) for player_id in o_active_players), key=locale.strxfrm)
         missing_girls = sorted((users_dict.get(player_id, player_id) for player_id in w_active_players), key=locale.strxfrm)
 
-        remaining_participants.sort()
-
         missing_boys_text = '\n'.join(missing_boys) if missing_boys else "\n"
         missing_girls_text = '\n'.join(missing_girls) if missing_girls else "\n"
-        remaining_text = '\n'.join(remaining_participants) if remaining_participants else "\n"
         
         blocks = create_empty_blocks(
             missing_boys_text,
-            missing_girls_text, 
-            remaining_text,
+            missing_girls_text,
             page,
             event_id
         )
