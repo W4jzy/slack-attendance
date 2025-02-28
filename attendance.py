@@ -109,20 +109,6 @@ def build_attendance_blocks(
                             {
                                 "text": {
                                     "type": "plain_text",
-                                    "text": "Upravit docházku"
-                                },
-                                "value": "go_to_edit_attendance"
-                            },
-                            {
-                                "text": {
-                                    "type": "plain_text",
-                                    "text": "Upravit nastavení"
-                                },
-                                "value": "go_to_settings"
-                            },
-                            {
-                                "text": {
-                                    "type": "plain_text",
                                     "text": "Upravit události"
                                 },
                                 "value": "go_to_all_events"
@@ -130,9 +116,23 @@ def build_attendance_blocks(
                             {
                                 "text": {
                                     "type": "plain_text",
+                                    "text": "Upravit docházku"
+                                },
+                                "value": "go_to_edit_attendance"
+                            },
+                            {
+                                "text": {
+                                    "type": "plain_text",
                                     "text": "Vyplnit hromadně"
                                 },
                                 "value": "mass_insert"
+                            },
+                            {
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "Upravit nastavení"
+                                },
+                                "value": "go_to_settings"
                             }
                         ],
                         "action_id": "main_menu_overflow"
@@ -180,16 +180,16 @@ def build_attendance_blocks(
                             {
                                 "text": {
                                     "type": "plain_text",
-                                    "text": "Vyplnit hromadně"
+                                    "text": "Obnovit"
                                 },
-                                "value": "mass_insert"
+                                "value": "refresh_home_tab"
                             },
                             {
                                 "text": {
                                     "type": "plain_text",
-                                    "text": "Obnovit"
+                                    "text": "Vyplnit hromadně"
                                 },
-                                "value": "refresh_home_tab"
+                                "value": "mass_insert"
                             }
                         ],
                         "action_id": "main_menu_overflow"
