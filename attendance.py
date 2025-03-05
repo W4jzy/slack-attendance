@@ -583,7 +583,8 @@ def format_status_section(
     return (
         f"{emoji} {total} *{status_text}* "
         f"( {len(group.men)} :mens: {len(group.women)} :womens: )\n"
-        f"{chr(10).join(group.men + group.women)}\n"
+        f"{chr(10).join(group.men)}\n\n"
+        f"{chr(10).join(group.women)}\n"
     )
 
 def create_participant_navigation(current_page: int, event_id: str) -> Dict[str, Any]:
