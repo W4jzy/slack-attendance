@@ -27,18 +27,31 @@ def fetch_user_groups(client: WebClient, logger: logging.Logger) -> List[Dict[st
         return [DEFAULT_OPTION]
 
 def fetch_channels(client: WebClient, logger: logging.Logger) -> List[Dict[str, Any]]:
-    """Fetch channels from Slack"""
+    """Fetch all channels from Slack (public + private) with pagination"""
     try:
-        response = client.conversations_list(
-            types="public_channel,private_channel",
-            exclude_archived=True
-        )
-        channels = [
-            {"text": {"type": "plain_text", "text": channel["name"]}, "value": channel["id"]}
-            for channel in response["channels"]
-        ]
+        channels = []
+        cursor = None
+
+        while True:
+            response = client.conversations_list(
+                types="public_channel,private_channel",
+                exclude_archived=True,
+                limit=200,
+                cursor=cursor
+            )
+            batch = [
+                {"text": {"type": "plain_text", "text": channel["name"]}, "value": channel["id"]}
+                for channel in response["channels"]
+            ]
+            channels.extend(batch)
+
+            cursor = response.get("response_metadata", {}).get("next_cursor")
+            if not cursor:
+                break
+
         channels.insert(0, DEFAULT_OPTION)
         return channels
+
     except SlackApiError as e:
         logger.error(f"Error fetching channels: {e}")
         return [DEFAULT_OPTION]
