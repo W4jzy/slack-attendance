@@ -46,7 +46,7 @@ def export_data_to_csv(start_date: str, end_date: str, user_id: str, client: Web
             raise ExportError(f"Neplatný formát data: {e}")
 
         data = load_participants_in_range(start_date, end_date)
-        required_keys = ["name", "status", "note", "event_name", "start_time", "end_time"]
+        required_keys = ["name", "category", "event_name", "status", "note", "start_time", "end_time"]
         
         # Use secure temporary file
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as temp_file:

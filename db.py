@@ -157,7 +157,7 @@ def load_users_not_in_event(event_id, logger: Optional[logging.Logger] = None) -
 
 def load_participants_in_range(start_date, end_date, logger: Optional[logging.Logger] = None) -> List[Dict[str, Any]]:
     query = """
-        SELECT u.name, p.status, p.note, e.name AS event_name, e.start_time, e.end_time
+        SELECT u.name, e.name AS event_name, u.category, p.status, p.note, e.start_time, e.end_time
         FROM users u
         JOIN participants p ON u.user_id = p.user_id
         JOIN events e ON p.event_id = e.id
