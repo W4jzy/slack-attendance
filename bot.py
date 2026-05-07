@@ -1735,40 +1735,51 @@ def post_event_to_channel(
     """Post event to channel."""
     try:
         event = load_event_from_db(event_id)
-        event_text = text
+        
+        # Get sender information
+        if user_id:
+            sender_name = get_user_by_id(user_id, logger)
+            footer_text = f"\n\n_Odeslal: {sender_name}_"
+        else:
+            # For future automatic reminders
+            footer_text = "\n\n_Automatický reminder_"
+        
+        # Append footer to message
+        message_text = text + footer_text
         
         client.chat_postMessage(
-        channel=channel_id,
-        text=text,
-        blocks=[
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": text
-                }
-            },
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "Zadat docházku"
-                        },
-                        "action_id": "attendance_modal",
-                        "value": f"event_id_{event_id}"
+            channel=channel_id,
+            text=message_text,
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": message_text
                     }
-                ]
-            }
-        ]
-    )
-        
-        client.chat_postMessage(
-            channel=user_id,
-            text=MESSAGES["SHARE_SUCCESS"]
+                },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Zadat docházku"
+                            },
+                            "action_id": "attendance_modal",
+                            "value": f"event_id_{event_id}"
+                        }
+                    ]
+                }
+            ]
         )
+        
+        if user_id:
+            client.chat_postMessage(
+                channel=user_id,
+                text=MESSAGES["SHARE_SUCCESS"]
+            )
         
     except SlackApiError as e:
         logger.error(f"Slack API error in event sharing: {datetime.now()} - {e}")
