@@ -10,7 +10,6 @@ class ConfigError(Exception):
 # Type-safe configuration dictionary
 config: Dict[str, Optional[str]] = {
     "admin_group": None,
-    "export_channel": None,
     "coming_text": "Coming",
     "late_text": "Late",
     "notcoming_text": "Not Coming",
@@ -160,11 +159,10 @@ def update_global_variables(logger: Optional[logging.Logger] = None) -> None:
         ConfigError: If required configuration is missing
     """
     try:
-        global admin_group, export_channel
+        global admin_group
         global coming_text, late_text, notcoming_text, coming_training, late_training, notcoming_training
 
         admin_group = config["admin_group"]
-        export_channel = config["export_channel"]
         coming_text = config["coming_text"]
         late_text = config["late_text"]
         notcoming_text = config["notcoming_text"]

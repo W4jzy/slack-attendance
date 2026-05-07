@@ -1,6 +1,8 @@
 import os
 import re
 import logging
+import signal
+import sys
 from datetime import datetime
 from dotenv import load_dotenv
 from typing import Dict, Any, Tuple, List, Callable, Optional
@@ -967,14 +969,8 @@ def handle_save_settings(
         values = body['view']['state']['values']
         user_id = body['user']['id']
 
-        # Get group selections
-        settings = {
-            "export_channel": get_selected_option_value(
-                values, 'export_channel_block', 'export_channel_select'
-            )
-        }
-
         # Get text inputs
+        settings = {}
         for key, default in DEFAULT_SETTINGS.items():
             settings[key] = get_input_value(
                 values, f'{key}_block', f'{key}_input', default
@@ -1974,7 +1970,25 @@ def handle_change_to_women_category(ack: Any, body: Dict[str, Any], client: WebC
     except Exception as e:
         logger.error(f"Error handling change to Women category: {datetime.now()} - {e}")
 
+def signal_handler(sig, frame):
+    """Handle shutdown signals gracefully."""
+    print("\n🛑 Ukončuji aplikaci... Prosím chvilku strpení.")
+    sys.exit(0)
+
 if __name__ == "__main__":
-    config.load_settings()
-    handler = SocketModeHandler(app, SLACK_APP_TOKEN)
-    handler.start()
+    # Setup signal handlers for graceful shutdown
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    try:
+        config.load_settings()
+        handler = SocketModeHandler(app, SLACK_APP_TOKEN)
+        print("✅ Slack bot úspěšně spuštěn!")
+        print("ℹ️  Pro ukončení použijte Ctrl+C")
+        handler.start()
+    except KeyboardInterrupt:
+        print("\n🛑 Ukončuji aplikaci...")
+        sys.exit(0)
+    except Exception as e:
+        print(f"❌ Chyba při spuštění aplikace: {e}")
+        sys.exit(1)

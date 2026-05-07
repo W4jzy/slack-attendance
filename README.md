@@ -90,7 +90,6 @@ After retrieving the administrator group ID, create and configure the `config.in
 # Mandatory
 admin_group=GROUP_ID
 # Optional
-export_channel=
 coming_text=Chci
 late_text=Ještě nevím
 notcoming_text=Nechci

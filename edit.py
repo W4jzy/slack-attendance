@@ -67,13 +67,12 @@ def build_back_blocks() -> List[Dict[str, Any]]:
         }
     ]
 
-def build_header_blocks(has_export: bool = False) -> List[Dict[str, Any]]:
+def build_header_blocks() -> List[Dict[str, Any]]:
     """Build header blocks for edit view"""
     blocks = []
     
-    if has_export:
-        blocks.extend(build_export_blocks())
-
+    # Export je nyní vždy dostupný (posílá se do DM)
+    blocks.extend(build_export_blocks())
     blocks.extend(build_back_blocks())
 
     blocks.extend([
@@ -207,7 +206,7 @@ def build_participant_blocks(event: Dict[str, Any], participant: Optional[Dict[s
 def show_edit_attendance(client: WebClient, user_id: str, logger: logging.Logger) -> None:
     """Show initial edit attendance view"""
     try:
-        blocks = build_header_blocks(has_export=config.export_channel != "None")
+        blocks = build_header_blocks()
         blocks.extend(build_user_category_blocks())
         client.views_publish(user_id=user_id, view={"type": "home", "blocks": blocks})
     except Exception as e:
@@ -218,7 +217,7 @@ def show_events_by_day(client: WebClient, logger: logging.Logger, selected_date:
     """Show events for selected date"""
     try:
         events = load_events_by_date_from_db(selected_date)
-        blocks = build_header_blocks(has_export=config.export_channel != "None")
+        blocks = build_header_blocks()
         
         for event in events:
             blocks.extend(build_event_blocks(event))

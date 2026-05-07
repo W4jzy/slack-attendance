@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Dict, List, Any, Optional
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 import logging
@@ -56,20 +56,8 @@ def fetch_channels(client: WebClient, logger: logging.Logger) -> List[Dict[str, 
         logger.error(f"Error fetching channels: {e}")
         return [DEFAULT_OPTION]
 
-def get_initial_option(id: Optional[str], array: List[Dict[str, Any]]) -> Tuple[str, str]:
-    """Get initial option for a select menu"""
-    if not id or id == "None":
-        return DEFAULT_OPTION["text"]["text"], DEFAULT_OPTION["value"]
-    
-    for item in array:
-        if item["value"] == id:
-            return item["text"]["text"], item["value"]
-    return DEFAULT_OPTION["text"]["text"], DEFAULT_OPTION["value"]
-
-def build_settings_blocks(channels: List[Dict], config_values: Dict) -> List[Dict]:
+def build_settings_blocks(config_values: Dict) -> List[Dict]:
     """Build settings view blocks"""
-    exp_n, exp_v = get_initial_option(config_values["export_channel"], channels)
-
     return [
         # Header section
         {
@@ -86,30 +74,6 @@ def build_settings_blocks(channels: List[Dict], config_values: Dict) -> List[Dic
                 "type": "plain_text",
                 "text": "Nastavení aplikace",
                 "emoji": True
-            }
-        },
-        {
-            "type": "input",
-            "block_id": "export_channel_block",
-            "element": {
-                "type": "static_select",
-                "action_id": "export_channel_select",
-                "placeholder": {
-                    "type": "plain_text",
-                    "text": "Vyberte kanál pro export"
-                },
-                "options": channels,
-                "initial_option": {
-                    "text": {
-                        "type": "plain_text",
-                        "text": exp_n,
-                    },
-                    "value": exp_v
-                },
-            },
-            "label": {
-                "type": "plain_text",
-                "text": "Exportní kanál"
             }
         },
         {
@@ -220,11 +184,8 @@ def show_settings(client: WebClient, user_id: str, logger: logging.Logger) -> No
         SettingsError: If settings cannot be displayed
     """
     try:
-        # Fetch required data
-        channels = fetch_channels(client, logger)
-
         # Build and publish view
-        blocks = build_settings_blocks(channels, config.config)
+        blocks = build_settings_blocks(config.config)
         
         client.views_publish(
             user_id=user_id,
