@@ -617,7 +617,7 @@ def process_due_reminders(client: WebClient, logger: logging.Logger) -> None:
                                 end_time_str = event['end_time'].strftime('%d.%m.%Y %H:%M')
                                 
                                 event_message = (
-                                    f"_{message}_\n\n"
+                                    f"{message}\n\n"
                                     f"📅 *{event['name']}*\n\n"
                                     f"📍 {event.get('address', 'Adresa není specifikována')}\n"
                                     f"🕐 Začátek: {start_time_str}\n"
