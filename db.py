@@ -477,3 +477,239 @@ def load_user_from_db(user_id, logger: Optional[logging.Logger] = None) -> Optio
         WHERE user_id = %s
     """
     return execute_query(query, (user_id,), fetchone=True, logger=logger)
+
+# ---------- REMINDER FUNCTIONS ----------
+
+def add_reminder_to_db(channel_id: str, remind_at: datetime, message: str, 
+                       repeat_type: Optional[str], reminder_type: str = 'message',
+                       days_ahead: int = 0, logger: Optional[logging.Logger] = None) -> None:
+    """
+    Add a new reminder to the database.
+    
+    Args:
+        channel_id: Slack channel ID where reminder will be sent
+        remind_at: DateTime when reminder should be sent
+        message: Message content of the reminder
+        repeat_type: Type of repetition (None, 'daily', 'weekly', 'monthly')
+        reminder_type: Type of reminder ('message' or 'share_events')
+        days_ahead: Days ahead to look for events (for share_events type)
+        logger: Optional logger instance
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
+    query = """
+        INSERT INTO reminders (channel_id, remind_at, message, repeat_type, active, reminder_type, days_ahead)
+        VALUES (%s, %s, %s, %s, 1, %s, %s)
+    """
+    execute_query(query, (channel_id, remind_at, message, repeat_type, reminder_type, days_ahead), logger=logger)
+
+def get_all_active_reminders(logger: Optional[logging.Logger] = None) -> List[Dict[str, Any]]:
+    """
+    Get all active reminders ordered by remind_at.
+    
+    Args:
+        logger: Optional logger instance
+        
+    Returns:
+        List[Dict[str, Any]]: List of active reminder records
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
+    query = """
+        SELECT id, channel_id, remind_at, message, repeat_type
+        FROM reminders
+        WHERE active = 1
+        ORDER BY remind_at ASC
+    """
+    result = execute_query(query, logger=logger)
+    return result if result else []
+
+def get_all_reminders(logger: Optional[logging.Logger] = None) -> List[Dict[str, Any]]:
+    """
+    Get all reminders (active and inactive) ordered by remind_at.
+    
+    Args:
+        logger: Optional logger instance
+        
+    Returns:
+        List[Dict[str, Any]]: List of all reminder records
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
+    query = """
+        SELECT id, channel_id, remind_at, message, repeat_type, active, reminder_type, days_ahead
+        FROM reminders
+        ORDER BY remind_at ASC
+    """
+    result = execute_query(query, logger=logger)
+    return result if result else []
+
+def get_due_reminders(logger: Optional[logging.Logger] = None) -> List[Dict[str, Any]]:
+    """
+    Get all active reminders that are due (remind_at <= now).
+    
+    Args:
+        logger: Optional logger instance
+        
+    Returns:
+        List[Dict[str, Any]]: List of due reminder records
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
+    query = """
+        SELECT id, channel_id, remind_at, message, repeat_type, reminder_type, days_ahead
+        FROM reminders
+        WHERE active = 1 AND remind_at <= NOW()
+    """
+    result = execute_query(query, logger=logger)
+    return result if result else []
+
+def update_reminder_next_time(reminder_id: int, next_time: datetime, 
+                              logger: Optional[logging.Logger] = None) -> None:
+    """
+    Update the remind_at time for a reminder (used for repeating reminders).
+    
+    Args:
+        reminder_id: Reminder ID
+        next_time: New remind_at datetime
+        logger: Optional logger instance
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
+    query = "UPDATE reminders SET remind_at = %s WHERE id = %s"
+    execute_query(query, (next_time, reminder_id), logger=logger)
+
+def deactivate_reminder(reminder_id: int, logger: Optional[logging.Logger] = None) -> None:
+    """
+    Deactivate a reminder (set active = 0).
+    
+    Args:
+        reminder_id: Reminder ID
+        logger: Optional logger instance
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
+    query = "UPDATE reminders SET active = 0 WHERE id = %s"
+    execute_query(query, (reminder_id,), logger=logger)
+
+def activate_reminder(reminder_id: int, logger: Optional[logging.Logger] = None) -> None:
+    """
+    Activate a reminder (set active = 1).
+    
+    Args:
+        reminder_id: Reminder ID
+        logger: Optional logger instance
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
+    query = "UPDATE reminders SET active = 1 WHERE id = %s"
+    execute_query(query, (reminder_id,), logger=logger)
+
+def toggle_reminder_active(reminder_id: int, logger: Optional[logging.Logger] = None) -> bool:
+    """
+    Toggle reminder active status.
+    
+    Args:
+        reminder_id: Reminder ID
+        logger: Optional logger instance
+        
+    Returns:
+        bool: New active status (True if now active, False if now inactive)
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
+    # Get current status
+    reminder = load_reminder_from_db(reminder_id, logger)
+    if not reminder:
+        raise DatabaseError(f"Reminder {reminder_id} not found")
+    
+    current_status = reminder.get('active', 0)
+    new_status = 0 if current_status else 1
+    
+    query = "UPDATE reminders SET active = %s WHERE id = %s"
+    execute_query(query, (new_status, reminder_id), logger=logger)
+    
+    return bool(new_status)
+
+def delete_reminder(reminder_id: int, logger: Optional[logging.Logger] = None) -> bool:
+    """
+    Delete a reminder by setting it inactive.
+    
+    Args:
+        reminder_id: Reminder ID
+        logger: Optional logger instance
+        
+    Returns:
+        bool: True if reminder was found and deleted, False otherwise
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
+    # Check if reminder exists and is active
+    result = execute_query(
+        "SELECT id FROM reminders WHERE id = %s AND active = 1",
+        (reminder_id,),
+        logger=logger
+    )
+    if not result:
+        return False
+    
+    deactivate_reminder(reminder_id, logger=logger)
+    return True
+
+def load_reminder_from_db(reminder_id: int, logger: Optional[logging.Logger] = None) -> Optional[Dict[str, Any]]:
+    """
+    Load a single reminder by ID.
+    
+    Args:
+        reminder_id: Reminder ID
+        logger: Optional logger instance
+        
+    Returns:
+        Optional[Dict[str, Any]]: Reminder record or None if not found
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
+    query = """
+        SELECT id, channel_id, remind_at, message, repeat_type, active, reminder_type, days_ahead
+        FROM reminders
+        WHERE id = %s
+    """
+    return execute_query(query, (reminder_id,), fetchone=True, logger=logger)
+
+def update_reminder(reminder_id: int, channel_id: str, remind_at: datetime, 
+                   message: str, repeat_type: Optional[str],
+                   reminder_type: str = 'message', days_ahead: int = 0,
+                   logger: Optional[logging.Logger] = None) -> None:
+    """
+    Update an existing reminder.
+    
+    Args:
+        reminder_id: Reminder ID
+        channel_id: Slack channel ID where reminder will be sent
+        remind_at: DateTime when reminder should be sent
+        message: Message content of the reminder
+        repeat_type: Type of repetition (None, 'daily', 'weekly', 'monthly')
+        reminder_type: Type of reminder ('message' or 'share_events')
+        days_ahead: Days ahead to look for events (for share_events type)
+        logger: Optional logger instance
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
+    query = """
+        UPDATE reminders
+        SET channel_id = %s, remind_at = %s, message = %s, repeat_type = %s, 
+            reminder_type = %s, days_ahead = %s
+        WHERE id = %s
+    """
+    execute_query(query, (channel_id, remind_at, message, repeat_type, reminder_type, days_ahead, reminder_id), logger=logger)

@@ -3,7 +3,9 @@ import re
 import logging
 import signal
 import sys
-from datetime import datetime
+import threading
+import time
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from typing import Dict, Any, Tuple, List, Callable, Optional
 from slack_bolt import App
@@ -16,6 +18,7 @@ from events import *
 from export import *
 from settings import *
 from edit import *
+from reminders import *
 import config
 import calendar
 import locale
@@ -153,6 +156,7 @@ MENU_ACTIONS: Dict[str, Callable] = {
     "go_to_all_events": lambda ack, body, client, logger: go_to_all_events(ack, body, client, logger),
     "go_to_settings": lambda ack, body, client, logger: go_to_settings(body, client, logger),
     "go_to_edit_attendance": lambda ack, body, client, logger: go_to_edit_attendance(ack, body, client, logger),
+    "go_to_reminders": lambda ack, body, client, logger: go_to_reminders(ack, body, client, logger),
     "mass_insert": lambda ack, body, client, logger: show_mass_insert(body, client, logger),
     "refresh_home_tab": lambda ack, body, client, logger: handle_refresh(ack, body, client, logger)
 }
@@ -177,6 +181,13 @@ class SlackBotError(Exception):
 # Initialize app and client
 app = App(token=SLACK_BOT_TOKEN)
 client = WebClient(token=SLACK_BOT_TOKEN)
+
+# Initialize logger for reminder loop
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 def get_user_by_id(
     user_id: str,
@@ -379,6 +390,17 @@ def handle_main_menu_overflow(ack: Any, body: Dict[str, Any], client: WebClient,
     except Exception as e:
         logger.error(f"Error in menu overflow: {datetime.now()} - {e}")
 
+@app.action("events_menu_overflow")
+def handle_events_menu_overflow(ack: Any, body: Dict[str, Any], client: WebClient, logger: logging.Logger) -> None:
+    """Handle events menu overflow action selection."""
+    try:
+        ack()
+        selected_option = body['actions'][0]['selected_option']['value']
+        if action_handler := MENU_ACTIONS.get(selected_option):
+            action_handler(ack, body, client, logger)
+    except Exception as e:
+        logger.error(f"Error in events menu overflow: {datetime.now()} - {e}")
+
 @app.action("go_to_add_event")
 def go_to_add_event(
     ack: Any,
@@ -444,6 +466,28 @@ def go_to_edit_attendance(
         logger.error(f"Error handling edit attendance: {datetime.now()} - {e}")
         raise
 
+@app.action("go_to_reminders")
+def go_to_reminders(
+    ack: Any,
+    body: Dict[str, Any],
+    client: WebClient,
+    logger: logging.Logger
+) -> None:
+    """
+    Handle action to show reminders list.
+    """
+    try:
+        ack()
+        if not (user_id := body.get("user", {}).get("id")):
+            raise ValueError("User ID not found in request body")
+        show_reminders_list(client, user_id, logger)
+    except SlackApiError as e:
+        logger.error(f"Slack API error in reminders: {datetime.now()} - {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Error handling reminders: {datetime.now()} - {e}")
+        raise
+
 @app.action("edit_overflow")
 def handle_edit_overflow(
     ack: Any,
@@ -481,14 +525,20 @@ def go_to_all_events(
     ack: Any,
     body: Dict[str, Any], 
     client: WebClient, 
-    logger: logging.Logger,
-    page: Optional[int] = DEFAULT_PAGE
+    logger: logging.Logger
 ) -> None:
     """
     Navigate to all events view with pagination.
     """
     try:
         ack()
+        # Extract page from button value if present, otherwise use default
+        page = DEFAULT_PAGE
+        if "actions" in body and body["actions"]:
+            value = body["actions"][0].get("value")
+            if value and value.isdigit():
+                page = int(value)
+        
         if page < 0:
             raise ValueError("Page number cannot be negative")
             
@@ -1981,10 +2031,310 @@ def handle_change_to_women_category(ack: Any, body: Dict[str, Any], client: WebC
     except Exception as e:
         logger.error(f"Error handling change to Women category: {datetime.now()} - {e}")
 
+# ---------- REMINDER HANDLERS ----------
+
+@app.action("open_add_reminder_modal")
+def handle_open_add_reminder_modal(
+    ack: Any,
+    body: Dict[str, Any],
+    client: WebClient,
+    logger: logging.Logger
+) -> None:
+    """
+    Handle action to open add reminder modal.
+    """
+    try:
+        ack()
+        open_add_reminder_modal(client, body["trigger_id"], logger)
+    except Exception as e:
+        logger.error(f"Error opening add reminder modal: {datetime.now()} - {e}")
+
+@app.view("add_reminder_modal")
+def handle_add_reminder_submission(
+    ack: Any,
+    body: Dict[str, Any],
+    client: WebClient,
+    logger: logging.Logger
+) -> None:
+    """
+    Handle submission of add reminder modal.
+    """
+    try:
+        ack()
+        user_id = body["user"]["id"]
+        
+        # Extract values from modal
+        values = body["view"]["state"]["values"]
+        reminder_type = values["reminder_type_block"]["reminder_type_select"]["selected_option"]["value"]
+        channel_id = values["channel_block"]["channel_select"]["selected_channel"]
+        remind_at_timestamp = values["remind_at_block"]["remind_at_input"]["selected_date_time"]
+        days_ahead = int(values["days_ahead_block"]["days_ahead_input"]["value"])
+        message = values["message_block"]["message_input"]["value"]
+        repeat_type = values["repeat_block"]["repeat_select"]["selected_option"]["value"]
+        
+        # Convert timestamp to datetime
+        remind_at = datetime.fromtimestamp(remind_at_timestamp)
+        
+        # Convert 'once' to None for database
+        if repeat_type == 'once':
+            repeat_type = None
+        
+        # Add reminder to database
+        add_reminder_to_db(
+            channel_id=channel_id,
+            remind_at=remind_at,
+            message=message,
+            repeat_type=repeat_type,
+            reminder_type=reminder_type,
+            days_ahead=days_ahead,
+            logger=logger
+        )
+        
+        # Send confirmation message
+        type_text = "zprávy" if reminder_type == "message" else f"sdílení událostí (+{days_ahead}d)"
+        client.chat_postMessage(
+            channel=user_id,
+            text=f"✅ Reminder byl úspěšně vytvořen! (Typ: {type_text})"
+        )
+        
+        # Refresh reminders list
+        show_reminders_list(client, user_id, logger)
+        
+    except Exception as e:
+        logger.error(f"Error handling add reminder submission: {datetime.now()} - {e}")
+        client.chat_postMessage(
+            channel=user_id,
+            text="❌ Chyba při vytváření reminderu."
+        )
+
+@app.action(re.compile(r"reminder_overflow_(\d+)"))
+def handle_reminder_overflow(
+    ack: Any,
+    body: Dict[str, Any],
+    client: WebClient,
+    logger: logging.Logger
+) -> None:
+    """
+    Handle reminder overflow menu actions.
+    """
+    try:
+        ack()
+        selected_option = body["actions"][0]["selected_option"]["value"]
+        
+        if selected_option.startswith("execute_now_reminder_"):
+            reminder_id = int(selected_option.split("_")[-1])
+            user_id = body["user"]["id"]
+            
+            # Execute reminder immediately
+            try:
+                success = execute_reminder_now(client, reminder_id, logger)
+                
+                if success:
+                    client.chat_postMessage(
+                        channel=user_id,
+                        text=f"⚡ Reminder {reminder_id} byl úspěšně proveden!"
+                    )
+                else:
+                    client.chat_postMessage(
+                        channel=user_id,
+                        text=f"❌ Nepodařilo se provést reminder {reminder_id}."
+                    )
+            except Exception as e:
+                logger.error(f"Error executing reminder now: {e}")
+                client.chat_postMessage(
+                    channel=user_id,
+                    text=f"❌ Chyba při provádění reminderu {reminder_id}."
+                )
+            
+            # Refresh reminders list
+            show_reminders_list(client, user_id, logger)
+            
+        elif selected_option.startswith("toggle_reminder_"):
+            reminder_id = int(selected_option.split("_")[-1])
+            user_id = body["user"]["id"]
+            
+            # Toggle reminder active status
+            try:
+                new_status = toggle_reminder_active(reminder_id, logger)
+                status_text = "aktivován" if new_status else "deaktivován"
+                
+                client.chat_postMessage(
+                    channel=user_id,
+                    text=f"{'✅' if new_status else '⏸️'} Reminder {reminder_id} byl {status_text}."
+                )
+            except Exception as e:
+                logger.error(f"Error toggling reminder: {e}")
+                client.chat_postMessage(
+                    channel=user_id,
+                    text=f"❌ Nepodařilo se změnit stav reminderu {reminder_id}."
+                )
+            
+            # Refresh reminders list
+            show_reminders_list(client, user_id, logger)
+            
+        elif selected_option.startswith("edit_reminder_"):
+            reminder_id = int(selected_option.split("_")[-1])
+            open_edit_reminder_modal(client, body["trigger_id"], reminder_id, logger)
+        elif selected_option.startswith("delete_reminder_"):
+            reminder_id = int(selected_option.split("_")[-1])
+            user_id = body["user"]["id"]
+            
+            # Delete reminder
+            success = delete_reminder(reminder_id, logger)
+            
+            if success:
+                client.chat_postMessage(
+                    channel=user_id,
+                    text=f"🗑️ Reminder {reminder_id} byl úspěšně smazán."
+                )
+            else:
+                client.chat_postMessage(
+                    channel=user_id,
+                    text=f"❌ Reminder {reminder_id} nebyl nalezen."
+                )
+            
+            # Refresh reminders list
+            show_reminders_list(client, user_id, logger)
+            
+    except Exception as e:
+        logger.error(f"Error handling reminder overflow: {datetime.now()} - {e}")
+
+@app.view(re.compile(r"edit_reminder_(\d+)"))
+def handle_edit_reminder_submission(
+    ack: Any,
+    body: Dict[str, Any],
+    client: WebClient,
+    logger: logging.Logger
+) -> None:
+    """
+    Handle submission of edit reminder modal.
+    """
+    try:
+        ack()
+        user_id = body["user"]["id"]
+        
+        # Extract reminder ID from callback_id
+        callback_id = body["view"]["callback_id"]
+        reminder_id = int(callback_id.split("_")[-1])
+        
+        # Extract values from modal
+        values = body["view"]["state"]["values"]
+        reminder_type = values["reminder_type_block"]["reminder_type_select"]["selected_option"]["value"]
+        channel_id = values["channel_block"]["channel_select"]["selected_channel"]
+        remind_at_timestamp = values["remind_at_block"]["remind_at_input"]["selected_date_time"]
+        days_ahead = int(values["days_ahead_block"]["days_ahead_input"]["value"])
+        message = values["message_block"]["message_input"]["value"]
+        repeat_type = values["repeat_block"]["repeat_select"]["selected_option"]["value"]
+        
+        # Convert timestamp to datetime
+        remind_at = datetime.fromtimestamp(remind_at_timestamp)
+        
+        # Convert 'once' to None for database
+        if repeat_type == 'once':
+            repeat_type = None
+        
+        # Update reminder in database
+        update_reminder(
+            reminder_id=reminder_id,
+            channel_id=channel_id,
+            remind_at=remind_at,
+            message=message,
+            repeat_type=repeat_type,
+            reminder_type=reminder_type,
+            days_ahead=days_ahead,
+            logger=logger
+        )
+        
+        # Send confirmation message
+        type_text = "zprávy" if reminder_type == "message" else f"sdílení událostí (+{days_ahead}d)"
+        client.chat_postMessage(
+            channel=user_id,
+            text=f"✅ Reminder {reminder_id} byl úspěšně upraven! (Typ: {type_text})"
+        )
+        
+        # Refresh reminders list
+        show_reminders_list(client, user_id, logger)
+        
+    except Exception as e:
+        logger.error(f"Error handling edit reminder submission: {datetime.now()} - {e}")
+        client.chat_postMessage(
+            channel=user_id,
+            text="❌ Chyba při úpravě reminderu."
+        )
+
 def signal_handler(sig, frame):
     """Handle shutdown signals gracefully."""
     print("\n🛑 Ukončuji aplikaci... Prosím chvilku strpení.")
     sys.exit(0)
+
+# ---------- REMINDER TASK LOOP ----------
+
+reminder_stop_event = threading.Event()
+
+def wait_for_30min_alignment():
+    """
+    Wait until the current time aligns to :00 or :30 minutes.
+    Similar to the before_loop in the reference code.
+    """
+    while True:
+        now = datetime.now()
+        minute = now.minute
+        second = now.second
+        
+        # Check if we're at :00 or :30 with 0 seconds
+        if minute % 30 == 0 and second == 0:
+            logger.info(f"Reminder loop aligned at {now}")
+            return
+        
+        # Calculate next alignment time
+        base = now.replace(second=0, microsecond=0)
+        add_minutes = (30 - (minute % 30)) % 30
+        if add_minutes == 0 and second > 0:
+            add_minutes = 30
+        
+        target = base + timedelta(minutes=add_minutes)
+        wait_seconds = (target - now).total_seconds()
+        
+        # Sleep in small increments to allow for shutdown
+        sleep_increment = min(1.0, wait_seconds)
+        for _ in range(int(wait_seconds)):
+            if reminder_stop_event.is_set():
+                return
+            time.sleep(sleep_increment)
+            if wait_seconds < 1:
+                time.sleep(wait_seconds)
+                break
+
+def reminder_loop_thread():
+    """
+    Background thread that processes reminders every 30 minutes.
+    """
+    logger.info("Starting reminder loop thread...")
+    
+    # Wait for initial alignment
+    wait_for_30min_alignment()
+    
+    while not reminder_stop_event.is_set():
+        try:
+            logger.info(f"Processing reminders at {datetime.now()}")
+            process_due_reminders(client, logger)
+        except Exception as e:
+            logger.error(f"Error in reminder loop: {e}")
+        
+        # Wait 30 minutes (1800 seconds) or until stop event
+        for _ in range(1800):
+            if reminder_stop_event.is_set():
+                logger.info("Stopping reminder loop...")
+                return
+            time.sleep(1)
+
+def start_reminder_loop():
+    """
+    Start the reminder loop in a background thread.
+    """
+    thread = threading.Thread(target=reminder_loop_thread, daemon=True)
+    thread.start()
+    logger.info("Reminder loop thread started")
 
 if __name__ == "__main__":
     # Setup signal handlers for graceful shutdown
@@ -1993,13 +2343,20 @@ if __name__ == "__main__":
     
     try:
         config.load_settings()
+        
+        # Start reminder loop in background
+        start_reminder_loop()
+        
         handler = SocketModeHandler(app, SLACK_APP_TOKEN)
         print("✅ Slack bot úspěšně spuštěn!")
+        print("⏰ Reminder loop aktivován (každých 30 minut)")
         print("ℹ️  Pro ukončení použijte Ctrl+C")
         handler.start()
     except KeyboardInterrupt:
         print("\n🛑 Ukončuji aplikaci...")
+        reminder_stop_event.set()
         sys.exit(0)
     except Exception as e:
         print(f"❌ Chyba při spuštění aplikace: {e}")
+        reminder_stop_event.set()
         sys.exit(1)

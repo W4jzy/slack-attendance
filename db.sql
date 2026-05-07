@@ -70,6 +70,21 @@ CREATE TABLE `participants` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `reminders`
+--
+
+CREATE TABLE `reminders` (
+  `id` int(11) NOT NULL,
+  `channel_id` varchar(50) NOT NULL,
+  `remind_at` datetime NOT NULL,
+  `message` text NOT NULL,
+  `repeat_type` varchar(100) DEFAULT NULL,
+  `active` tinyint(1) DEFAULT 1
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_czech_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `users`
 --
 
@@ -106,6 +121,12 @@ ALTER TABLE `participants`
   ADD KEY `participants_ibfk_1` (`user_id`);
 
 --
+-- Indexes for table `reminders`
+--
+ALTER TABLE `reminders`
+  ADD PRIMARY KEY (`id`);
+
+--
 -- Indexes for table `users`
 --
 ALTER TABLE `users`
@@ -129,6 +150,11 @@ ALTER TABLE `history`
 -- AUTO_INCREMENT for table `participants`
 --
 ALTER TABLE `participants`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+--
+-- AUTO_INCREMENT for table `reminders`
+--
+ALTER TABLE `reminders`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 --
 -- Constraints for dumped tables

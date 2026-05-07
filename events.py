@@ -169,15 +169,37 @@ def build_event_list_blocks(events: List[Dict], page: int) -> List[Dict[str, Any
     """Build blocks for event list view"""
     blocks = []
     
-    # Add header actions
+    # Add overflow menu with back button
     blocks.append({
         "type": "actions",
         "elements": [
             {
-                "type": "button",
-                "text": {"type": "plain_text", "text": "Přidat událost"},
-                "action_id": "go_to_add_event"
-            },
+                "type": "overflow",
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Přidat událost"
+                        },
+                        "value": "go_to_add_event"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Reminders"
+                        },
+                        "value": "go_to_reminders"
+                    }
+                ],
+                "action_id": "events_menu_overflow"
+            }
+        ]
+    })
+    
+    # Add back button separately
+    blocks.append({
+        "type": "actions",
+        "elements": [
             {
                 "type": "button",
                 "text": {"type": "plain_text", "text": "Zpět"},
@@ -340,20 +362,37 @@ def show_events(client: WebClient, user_id: str, logger: logging.Logger, page: i
                             "type": "actions",
                             "elements": [
                                 {
-                                    "type": "button",
-                                    "text": {
-                                        "type": "plain_text",
-                                        "text": "Přidat událost"
-                                    },
-                                    "action_id": "go_to_add_event"
-                                },
+                                    "type": "overflow",
+                                    "options": [
+                                        {
+                                            "text": {
+                                                "type": "plain_text",
+                                                "text": "Přidat událost"
+                                            },
+                                            "value": "go_to_add_event"
+                                        },
+                                        {
+                                            "text": {
+                                                "type": "plain_text",
+                                                "text": "Reminders"
+                                            },
+                                            "value": "go_to_reminders"
+                                        }
+                                    ],
+                                    "action_id": "events_menu_overflow"
+                                }
+                            ]
+                        },
+                        {
+                            "type": "actions",
+                            "elements": [
                                 {
                                     "type": "button",
                                     "text": {
                                         "type": "plain_text",
                                         "text": "Zpět"
                                     },
-                                    "action_id": f"go_to_attendance"
+                                    "action_id": "go_to_attendance"
                                 }
                             ]
                         },

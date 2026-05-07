@@ -1154,3 +1154,83 @@ def open_chat_attendance_modal(
         )
     except Exception as e:
          logger.error(f"Error opening modal: {e}")
+
+def show_edit_events_menu(
+    client: WebClient,
+    user_id: str,
+    logger: logging.Logger
+) -> None:
+    """
+    Show submenu for editing events with options for events and reminders.
+    
+    Args:
+        client: Slack WebClient instance
+        user_id: User ID to show menu to
+        logger: Logger instance
+    """
+    try:
+        blocks = [
+            {
+                "type": "actions",
+                "elements": [{
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Zpět"},
+                    "action_id": "go_to_attendance"
+                }]
+            },
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "Upravit události",
+                    "emoji": True
+                }
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "📅 *Přidat událost*\nVytvořit novou událost, trénink nebo turnaj"
+                },
+                "accessory": {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Přidat"},
+                    "style": "primary",
+                    "action_id": "go_to_add_event"
+                }
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "📋 *Seznam událostí*\nZobrazit, upravit nebo smazat existující události"
+                },
+                "accessory": {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Zobrazit"},
+                    "action_id": "go_to_all_events"
+                }
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "⏰ *Reminders*\nSprávovat automatické připomínky"
+                },
+                "accessory": {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Otevřít"},
+                    "action_id": "go_to_reminders"
+                }
+            }
+        ]
+        
+        client.views_publish(
+            user_id=user_id,
+            view={"type": "home", "blocks": blocks}
+        )
+    except Exception as e:
+        logger.error(f"Error showing edit events menu: {e}")
