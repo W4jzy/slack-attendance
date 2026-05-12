@@ -413,8 +413,8 @@ def go_to_add_event(
     """
     try:
         ack()
-        user_id = body["user"]["id"]
-        add_event(client, user_id, logger)
+        trigger_id = body["trigger_id"]
+        add_event(client, trigger_id, logger)
     except SlackApiError as e:
         logger.error(f"Slack API error in add event: {datetime.now()} - {e}")
         raise
@@ -1000,14 +1000,14 @@ def save_settings_to_config(settings: Dict[str, str]) -> None:
         config.set_setting(key, value)
     config.save_settings()
 
-@app.action("save_settings")
+@app.view("settings_modal")
 def handle_save_settings(
     ack: Any,
     body: Dict[str, Any],
     logger: logging.Logger
 ) -> None:
     """
-    Handle settings save action.
+    Handle settings modal submission.
     
     Args:
         ack: Acknowledge function
@@ -1017,7 +1017,6 @@ def handle_save_settings(
     try:
         ack()
         values = body['view']['state']['values']
-        user_id = body['user']['id']
 
         # Get text inputs
         settings = {}
@@ -1027,12 +1026,6 @@ def handle_save_settings(
             )
 
         save_settings_to_config(settings)
-
-        client.chat_postMessage(
-            channel=user_id,
-            text="Nastavení bylo úspěšně uloženo."
-        )
-        show_attendance(client, user_id, logger)
 
     except SlackApiError as e:
         logger.error(f"Slack API error in settings: {datetime.now()} - {e}")
@@ -1060,14 +1053,14 @@ def validate_event_fields(values: Dict[str, Any]) -> Dict[str, Any]:
     event_data["address"] = values.get("address_block", {}).get("address_input", {}).get("value", "")
     return event_data
 
-@app.action("submit_event")
+@app.view("add_event_modal")
 def handle_submit_event(
     ack: Any,
     body: Dict[str, Any],
     logger: logging.Logger
 ) -> None:
     """
-    Handle event submission.
+    Handle event submission from modal.
     
     Args:
         ack: Acknowledge function
@@ -1075,22 +1068,17 @@ def handle_submit_event(
         logger: Logger instance
     """
     try:
-        ack()
         values = body["view"]["state"]["values"]
-        user_id = body["user"]["id"]
         
         event_data = validate_event_fields(values)
         if not event_data:
-            client.chat_postMessage(channel=user_id, text=MESSAGES["ERROR"])
+            ack(response_action="errors", errors={
+                "name_block": MESSAGES["ERROR"]
+            })
             return
 
+        ack()
         add_event_to_db(**event_data)
-        client.chat_postMessage(
-            channel=user_id,
-            text=MESSAGES["SUCCESS"].format(name=event_data["name"])
-        )
-        
-        go_to_all_events(ack, body, client, logger)
         
     except SlackApiError as e:
         logger.error(f"Slack API error in event submission: {datetime.now()} - {e}")
@@ -1946,7 +1934,7 @@ def handle_select_user_category(
     logger: logging.Logger
 ) -> None:
     """
-    Handle selection of user for category editing.
+    Handle selection of user for category editing - opens modal.
     
     Args:
         ack: Acknowledge function
@@ -1956,8 +1944,7 @@ def handle_select_user_category(
     """
     try:
         ack()
-        if not (view_user_id := body.get("user", {}).get("id")):
-            raise ValueError("User ID not found in request body")
+        trigger_id = body["trigger_id"]
         
         values = body['view']['state']['values']
         if not (selected_user := values.get('user_category_selection_section', {})
@@ -1970,66 +1957,47 @@ def handle_select_user_category(
             client=client,
             logger=logger,
             user_id=selected_user,
-            view_user_id=view_user_id
+            trigger_id=trigger_id
         )
         
     except ValueError as e:
         logger.error(f"Validation error: {datetime.now()} - {e}")
-        client.chat_postMessage(channel=view_user_id, text=str(e))
     except SlackApiError as e:
         logger.error(f"Slack API error: {datetime.now()} - {e}")
-        client.chat_postMessage(channel=view_user_id, text="Chyba při výběru uživatele.")
     except Exception as e:
         logger.error(f"Error handling select user category: {datetime.now()} - {e}")
-        client.chat_postMessage(channel=view_user_id, text="Chyba při výběru uživatele.")
 
-@app.action("user_category_open")
-def handle_change_to_open_category(ack: Any, body: Dict[str, Any], client: WebClient, logger: logging.Logger) -> None:
+@app.view(re.compile(r"^edit_user_category_.+$"))
+def handle_edit_user_category_submit(
+    ack: Any,
+    body: Dict[str, Any],
+    logger: logging.Logger
+) -> None:
     """
-    Handle selection of Open category.
+    Handle user category edit modal submission.
     
     Args:
         ack: Acknowledge function
         body: Request body
-        client: Slack client instance
         logger: Logger instance
     """
     try:
+        # Extract user_id from callback_id
+        callback_id = body['view']['callback_id']
+        user_id = callback_id.replace('edit_user_category_', '')
+        
+        # Get selected category
+        values = body['view']['state']['values']
+        selected_category = values['category_block']['category_select']['selected_option']['value']
+        
+        # Update user category
+        update_user_category(user_id, selected_category, logger)
+        
         ack()
-        selected_user = body["actions"][0]["value"]
-        update_user_category(selected_user, "Open", logger)
-        show_edit_player_category(
-            client=client,
-            logger=logger,
-            user_id=selected_user,
-            view_user_id=body["user"]["id"]
-        )
+        
     except Exception as e:
-        logger.error(f"Error handling change to Open category: {datetime.now()} - {e}")
-
-@app.action("user_category_women")
-def handle_change_to_women_category(ack: Any, body: Dict[str, Any], client: WebClient, logger: logging.Logger) -> None:
-    """
-    Handle selection of Women category.
-    
-    Args:
-        ack: Acknowledge function
-        body: Request body
-        client: Slack client instance
-        logger: Logger instance
-    """
-    try:
+        logger.error(f"Error handling edit user category submit: {datetime.now()} - {e}")
         ack()
-        selected_user = body["actions"][0]["value"]
-        update_user_category(selected_user, "Women", logger)
-        show_edit_player_category(
-            client=client,
-            logger=logger,
-            user_id=selected_user,
-            view_user_id=body["user"]["id"]
-        )
-    except Exception as e:
-        logger.error(f"Error handling change to Women category: {datetime.now()} - {e}")
 
 # ---------- REMINDER HANDLERS ----------
 

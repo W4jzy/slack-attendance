@@ -8,7 +8,7 @@ from db import *
 # Constants
 REMINDER_MODAL_CONFIG = {
     "type": "modal",
-    "title": {"type": "plain_text", "text": "Reminders"},
+    "title": {"type": "plain_text", "text": "Připomínky"},
     "close": {"type": "plain_text", "text": "Zavřít"}
 }
 
@@ -34,7 +34,7 @@ def build_add_reminder_modal() -> Dict[str, Any]:
     return {
         "type": "modal",
         "callback_id": "add_reminder_modal",
-        "title": {"type": "plain_text", "text": "Přidat reminder"},
+        "title": {"type": "plain_text", "text": "Přidat připomínku"},
         "submit": {"type": "plain_text", "text": "Vytvořit"},
         "close": {"type": "plain_text", "text": "Zrušit"},
         "blocks": [
@@ -70,7 +70,7 @@ def build_add_reminder_modal() -> Dict[str, Any]:
                 },
                 "label": {
                     "type": "plain_text",
-                    "text": "Typ reminderu"
+                    "text": "Typ připomínky"
                 }
             },
             {
@@ -210,7 +210,7 @@ def build_edit_reminder_modal(reminder: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "type": "modal",
         "callback_id": f"edit_reminder_{reminder['id']}",
-        "title": {"type": "plain_text", "text": "Upravit reminder"},
+        "title": {"type": "plain_text", "text": "Upravit připomínku"},
         "submit": {"type": "plain_text", "text": "Uložit"},
         "close": {"type": "plain_text", "text": "Zrušit"},
         "blocks": [
@@ -225,7 +225,7 @@ def build_edit_reminder_modal(reminder: Dict[str, Any]) -> Dict[str, Any]:
                 },
                 "label": {
                     "type": "plain_text",
-                    "text": "Typ reminderu"
+                    "text": "Typ připomínky"
                 }
             },
             {
@@ -255,7 +255,7 @@ def build_edit_reminder_modal(reminder: Dict[str, Any]) -> Dict[str, Any]:
                 },
                 "label": {
                     "type": "plain_text",
-                    "text": "Datum a čas reminderu"
+                    "text": "Datum a čas připomínky"
                 }
             },
             {
@@ -347,7 +347,7 @@ def build_reminders_list_view(client: WebClient, logger: logging.Logger) -> List
                 },
                 {
                     "type": "button",
-                    "text": {"type": "plain_text", "text": "Přidat reminder"},
+                    "text": {"type": "plain_text", "text": "Přidat připomínku"},
                     "style": "primary",
                     "action_id": "open_add_reminder_modal"
                 }
@@ -357,7 +357,7 @@ def build_reminders_list_view(client: WebClient, logger: logging.Logger) -> List
             "type": "header",
             "text": {
                 "type": "plain_text",
-                "text": "Reminders",
+                "text": "Připomínky",
                 "emoji": True
             }
         },
@@ -373,7 +373,7 @@ def build_reminders_list_view(client: WebClient, logger: logging.Logger) -> List
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "_Žádné remindery._"
+                    "text": "_Žádné připomínky._"
                 }
             })
         else:

@@ -10,33 +10,71 @@ class EditError(Exception):
     """Base exception for edit related errors"""
     pass
 
-def build_user_category_blocks() -> List[Dict[str, Any]]:
-    """Build blocks for user category selection and update"""
-    return [
-        {
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": "*Vyberte hráče pro úpravu kategorie*"},
+def build_player_category_modal(user_info: Dict[str, Any]) -> Dict[str, Any]:
+    """Build modal for player category edit"""
+    user_name = user_info['name']
+    user_category = user_info.get('category', 'Open')
+    
+    return {
+        "type": "modal",
+        "callback_id": f"edit_user_category_{user_info['user_id']}",
+        "title": {
+            "type": "plain_text",
+            "text": "Upravit kategorii"
         },
-        {
-            "type": "actions",
-            "block_id": "user_category_selection_section",
-            "elements": [
-                {
-                    "type": "external_select",
-                    "action_id": "user_selection",
-                    "placeholder": {"type": "plain_text", "text": "Vyberte hráče..."},
-                    "min_query_length": 2
-                },
-                {
-                    "type": "button",
-                    "style": "primary",
-                    "text": {"type": "plain_text", "text": "Potvrdit"},
-                    "action_id": "select_user_category"
+        "submit": {
+            "type": "plain_text",
+            "text": "Uložit"
+        },
+        "close": {
+            "type": "plain_text",
+            "text": "Zavřít"
+        },
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Hráč:* {user_name}"
                 }
-            ]
-        },
-        {"type": "divider"}
-    ]
+            },
+            {
+                "type": "input",
+                "block_id": "category_block",
+                "element": {
+                    "type": "radio_buttons",
+                    "action_id": "category_select",
+                    "options": [
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Open"
+                            },
+                            "value": "Open"
+                        },
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Women"
+                            },
+                            "value": "Women"
+                        }
+                    ],
+                    "initial_option": {
+                        "text": {
+                            "type": "plain_text",
+                            "text": user_category
+                        },
+                        "value": user_category
+                    }
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Kategorie"
+                }
+            }
+        ]
+    }
 
 def build_export_blocks() -> List[Dict[str, Any]]:
     """Build blocks for export view"""
@@ -207,7 +245,31 @@ def show_edit_attendance(client: WebClient, user_id: str, logger: logging.Logger
     """Show initial edit attendance view"""
     try:
         blocks = build_header_blocks()
-        blocks.extend(build_user_category_blocks())
+        blocks.extend([
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": "*Vyberte hráče pro úpravu kategorie*"},
+            },
+            {
+                "type": "actions",
+                "block_id": "user_category_selection_section",
+                "elements": [
+                    {
+                        "type": "external_select",
+                        "action_id": "user_selection",
+                        "placeholder": {"type": "plain_text", "text": "Vyberte hráče..."},
+                        "min_query_length": 2
+                    },
+                    {
+                        "type": "button",
+                        "style": "primary",
+                        "text": {"type": "plain_text", "text": "Potvrdit"},
+                        "action_id": "select_user_category"
+                    }
+                ]
+            },
+            {"type": "divider"}
+        ])
         client.views_publish(user_id=user_id, view={"type": "home", "blocks": blocks})
     except Exception as e:
         logger.error(f"Error showing edit attendance: {e}")
@@ -271,62 +333,17 @@ def show_edit_player_category(
     client: WebClient,
     logger: logging.Logger,
     user_id: str,
-    view_user_id: str
+    trigger_id: str
 ) -> None:
-    """Show player category edit view"""
+    """Show player category edit modal"""
     try:
-        blocks = build_back_blocks()
-        blocks.extend(build_user_category_blocks())
-
-        # Add user info
+        # Get user info
         user_info = load_user_from_db(user_id)
         if not user_info:
             raise EditError(f"User with ID {user_id} not found")
 
-        user_name = user_info['name']
-        user_category = user_info.get('category')
-
-        blocks.extend([
-            {
-                "type": "header",
-                "text": {"type": "plain_text", "text": "Úprava kategorie hráče", "emoji": True}
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*{user_name}*"
-                }
-            },
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": f"{':large_blue_circle: ' if user_category == 'Open' else ''}Open"
-                        },
-                        "value": user_id,
-                        "action_id": "user_category_open",
-                        **({"style": "primary"} if user_category == "Open" else {})
-                    },
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": f"{'🔴 ' if user_category == 'Women' else ''}Women"
-                        },
-                        "value": user_id,
-                        "action_id": "user_category_women",
-                        **({"style": "primary"} if user_category == "Women" else {})
-                    }
-                ]
-            },
-            {"type": "divider"}
-        ])
-
-        client.views_publish(user_id=view_user_id, view={"type": "home", "blocks": blocks})
+        modal = build_player_category_modal(user_info)
+        client.views_open(trigger_id=trigger_id, view=modal)
     except Exception as e:
         logger.error(f"Error showing edit player category: {e}")
         raise EditError("Failed to show player category")
