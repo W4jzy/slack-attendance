@@ -4,11 +4,164 @@ from slack_sdk.errors import SlackApiError
 from datetime import datetime
 import logging
 import config
-from db import load_events_by_date_from_db, load_event_from_db, load_user_in_event, load_user_from_db
+from db import load_events_by_date_from_db, load_event_from_db, load_user_in_event, load_user_from_db, load_participants_from_event
 
 class EditError(Exception):
     """Base exception for edit related errors"""
     pass
+
+def build_edit_attendance_modal(event: Dict[str, Any], selected_user: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Build modal for editing attendance"""
+    coming_text = config.coming_text
+    late_text = config.late_text
+    notcoming_text = config.notcoming_text
+    
+    if event['type'] == "Trénink":
+        coming_text = config.coming_training
+        late_text = config.late_training
+        notcoming_text = config.notcoming_training
+    
+    status_options = [
+        {
+            "text": {"type": "plain_text", "text": coming_text},
+            "value": "Coming"
+        },
+        {
+            "text": {"type": "plain_text", "text": late_text},
+            "value": "Late"
+        },
+        {
+            "text": {"type": "plain_text", "text": notcoming_text},
+            "value": "Not Coming"
+        }
+    ]
+    
+    blocks = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*Událost:* {event['name']}\n*Typ:* {event['type']}"
+            }
+        },
+        {
+            "type": "section",
+            "block_id": "user_block",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*Vyberte hráče:*"
+            },
+            "accessory": {
+                "type": "external_select",
+                "action_id": "user_select",
+                "placeholder": {"type": "plain_text", "text": "Začněte psát jméno..."},
+                "min_query_length": 2
+            }
+        }
+    ]
+    
+    # If user is selected, add their info and pre-fill status
+    if selected_user:
+        # Update user select with selected value
+        blocks[1]["accessory"]["initial_option"] = {
+            "text": {"type": "plain_text", "text": selected_user['name']},
+            "value": selected_user['user_id']
+        }
+        
+        # Add status input with pre-selected value if exists
+        status_block = {
+            "type": "input",
+            "block_id": "status_block",
+            "element": {
+                "type": "radio_buttons",
+                "action_id": "status_select",
+                "options": status_options
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "Docházka"
+            }
+        }
+        
+        # Pre-select current status if exists
+        if selected_user.get('status'):
+            for option in status_options:
+                if option["value"] == selected_user['status']:
+                    status_block["element"]["initial_option"] = option
+                    break
+        
+        blocks.append(status_block)
+    
+    return {
+        "type": "modal",
+        "callback_id": f"edit_attendance_{event['id']}",
+        "title": {
+            "type": "plain_text",
+            "text": "Upravit docházku"
+        },
+        "submit": {
+            "type": "plain_text",
+            "text": "Uložit"
+        },
+        "close": {
+            "type": "plain_text",
+            "text": "Zavřít"
+        },
+        "blocks": blocks
+    }
+
+def show_edit_attendance_for_event(
+    client: WebClient,
+    logger: logging.Logger,
+    event_id: str,
+    trigger_id: str
+) -> None:
+    """Show attendance edit modal for event"""
+    try:
+        event = load_event_from_db(event_id)
+        if not event:
+            raise EditError(f"Event with ID {event_id} not found")
+        
+        modal = build_edit_attendance_modal(event)
+        client.views_open(trigger_id=trigger_id, view=modal)
+    except Exception as e:
+        logger.error(f"Error showing edit attendance modal: {e}")
+        raise EditError("Failed to show attendance edit modal")
+
+def update_edit_attendance_modal(
+    client: WebClient,
+    logger: logging.Logger,
+    event_id: str,
+    user_id: str,
+    view_id: str
+) -> None:
+    """Update attendance edit modal with selected user's data"""
+    try:
+        event = load_event_from_db(event_id)
+        if not event:
+            raise EditError(f"Event with ID {event_id} not found")
+        
+        # Load user's attendance for this event
+        participant = load_user_in_event(event_id, user_id)
+        
+        # Build user info dict
+        if participant:
+            selected_user = participant
+        else:
+            # User not found in event, load basic user info
+            user_info = load_user_from_db(user_id)
+            selected_user = {
+                'user_id': user_id,
+                'name': user_info['name'],
+                'status': None
+            }
+        
+        modal = build_edit_attendance_modal(event, selected_user)
+        client.views_update(view_id=view_id, view=modal)
+        
+    except Exception as e:
+        logger.error(f"Error updating edit attendance modal: {e}")
+        raise EditError("Failed to update attendance edit modal")
 
 def build_player_category_modal(user_info: Dict[str, Any]) -> Dict[str, Any]:
     """Build modal for player category edit"""

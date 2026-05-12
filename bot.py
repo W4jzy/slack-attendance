@@ -1417,7 +1417,7 @@ def handle_select_event(
     logger: logging.Logger
 ) -> None:
     """
-    Handle event selection action.
+    Handle event selection action - opens modal for attendance edit.
     
     Args:
         ack: Acknowledge function
@@ -1427,8 +1427,7 @@ def handle_select_event(
     """
     try:
         ack()
-        if not (user_id := body.get("user", {}).get("id")):
-            raise ValueError(ERROR_MESSAGES["USER_NOT_FOUND"])
+        trigger_id = body["trigger_id"]
             
         action_id = body['actions'][0]['action_id']
         event_id = action_id.split('_')[-1]
@@ -1436,17 +1435,14 @@ def handle_select_event(
         if not event_id.isdigit():
             raise ValueError(ERROR_MESSAGES["INVALID_ID"])
             
-        show_edit_attendance_players(client, logger, event_id, user_id)
+        show_edit_attendance_for_event(client, logger, event_id, trigger_id)
         
     except ValueError as e:
         logger.error(f"Validation error: {datetime.now()} - {e}")
-        client.chat_postMessage(channel=user_id, text=str(e))
     except SlackApiError as e:
         logger.error(f"Slack API error: {datetime.now()} - {e}")
-        client.chat_postMessage(channel=user_id, text=ERROR_MESSAGES["GENERAL_ERROR2"])
     except Exception as e:
         logger.error(f"Error handling select event: {datetime.now()} - {e}")
-        client.chat_postMessage(channel=user_id, text=ERROR_MESSAGES["GENERAL_ERROR2"])
 
 def parse_event_id(action_id: str) -> str:
     """Extract event ID from action ID."""
@@ -1505,7 +1501,7 @@ def select_participant_in_event(
         client.chat_postMessage(channel=view_user_id, text=ERROR_MESSAGES["SELECTION_ERROR"])
 
 @app.options("user_selection")
-def handle_user_selection(
+def handle_user_selection_options(
     ack: Any,
     body: Dict[str, Any],
     logger: logging.Logger
@@ -1554,9 +1550,103 @@ def handle_user_selection(
         logger.error(f"Error searching users: {datetime.now()} - {e}")
         ack(options=[])
 
+@app.options("user_select")
+def handle_user_select_options(
+    ack: Any,
+    body: Dict[str, Any],
+    logger: logging.Logger
+) -> None:
+    """
+    Handle user select options loading (for modal).
+    
+    Args:
+        ack: Acknowledge function
+        body: Request body with search input
+        logger: Logger instance
+    """
+    try:
+        user_input = body.get("value", "").strip().lower()
+        users = load_users_from_db()
+
+        filtered_users = (
+            [user for user in users if user_input in user['name'].lower()]
+            if user_input
+            else users
+        )
+
+        # Sort by name and limit results
+        sorted_users = sorted(
+            filtered_users, 
+            key=lambda x: x['name']
+        )[:MAX_RESULTS]
+
+        if not sorted_users:
+            ack(options=[])
+            return
+
+        options = [
+            {
+                "text": {"type": "plain_text", "text": user['name']},
+                "value": user['user_id']
+            }
+            for user in sorted_users
+        ]
+        ack(options=options)
+        
+    except SlackApiError as e:
+        logger.error(f"Slack API error in user search: {datetime.now()} - {e}")
+        ack(options=[])
+    except Exception as e:
+        logger.error(f"Error searching users: {datetime.now()} - {e}")
+        ack(options=[])
+
 @app.action("user_selection")
-def handle_user_selection(ack, body, logger):
+def handle_user_selection_action(ack, body, logger):
+    """Handle user selection action (no-op)"""
     ack()
+
+@app.action("user_select")
+def handle_user_select_in_modal(
+    ack: Any,
+    body: Dict[str, Any],
+    client: WebClient,
+    logger: logging.Logger
+) -> None:
+    """
+    Handle user selection in edit attendance modal - updates modal with user's current status.
+    
+    Args:
+        ack: Acknowledge function
+        body: Request body
+        client: Slack client instance
+        logger: Logger instance
+    """
+    try:
+        ack()
+        
+        # Get selected user
+        selected_option = body['actions'][0].get('selected_option')
+        if not selected_option:
+            return
+            
+        user_id = selected_option['value']
+        
+        # Get event_id from callback_id
+        view = body['view']
+        callback_id = view['callback_id']
+        event_id = callback_id.replace('edit_attendance_', '')
+        
+        # Update modal with user's attendance
+        update_edit_attendance_modal(
+            client=client,
+            logger=logger,
+            event_id=event_id,
+            user_id=user_id,
+            view_id=view['id']
+        )
+        
+    except Exception as e:
+        logger.error(f"Error handling user select in modal: {datetime.now()} - {e}")
 
 def get_form_values(values: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
     """Extract and validate form values."""
@@ -1997,6 +2087,67 @@ def handle_edit_user_category_submit(
         
     except Exception as e:
         logger.error(f"Error handling edit user category submit: {datetime.now()} - {e}")
+        ack()
+
+@app.view(re.compile(r"^edit_attendance_\d+$"))
+def handle_edit_attendance_submit(
+    ack: Any,
+    body: Dict[str, Any],
+    logger: logging.Logger
+) -> None:
+    """
+    Handle attendance edit modal submission.
+    
+    Args:
+        ack: Acknowledge function
+        body: Request body
+        logger: Logger instance
+    """
+    try:
+        # Extract event_id from callback_id
+        callback_id = body['view']['callback_id']
+        event_id = callback_id.replace('edit_attendance_', '')
+        
+        # Get selected user and status
+        values = body['view']['state']['values']
+        
+        # Check if user was selected
+        user_block = values.get('user_block', {}).get('user_select', {})
+        selected_option = user_block.get('selected_option')
+        
+        if not selected_option:
+            ack(response_action="errors", errors={
+                "user_block": "Prosím vyberte hráče"
+            })
+            return
+        
+        user_id = selected_option['value']
+        
+        # Check if status was selected
+        status_block = values.get('status_block', {}).get('status_select', {})
+        status_option = status_block.get('selected_option')
+        
+        if not status_option:
+            ack(response_action="errors", errors={
+                "status_block": "Prosím vyberte docházku"
+            })
+            return
+        
+        status = status_option['value']
+        
+        # Save attendance
+        insert_participation(
+            event_id=event_id,
+            user_id=user_id,
+            status=status,
+            note="",
+            logger=logger
+        )
+        
+        ack()
+        
+    except Exception as e:
+        logger.error(f"Error handling edit attendance submit: {datetime.now()} - {e}")
         ack()
 
 # ---------- REMINDER HANDLERS ----------
