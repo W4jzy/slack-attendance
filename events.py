@@ -47,22 +47,6 @@ def build_event_form_blocks() -> List[Dict[str, Any]]:
     """Build blocks for event creation form"""
     return [
         {
-            "type": "actions",
-            "elements": [{
-                "type": "button",
-                "text": {"type": "plain_text", "text": "Zpět"},
-                "action_id": "all_events"
-            }]
-        },
-        {
-            "type": "header",
-            "text": {
-                "type": "plain_text",
-                "text": "Přidat novou událost",
-                "emoji": True
-            }
-        },
-        {
             "type": "input",
             "block_id": "name_block",
             "element": {
@@ -147,21 +131,6 @@ def build_event_form_blocks() -> List[Dict[str, Any]]:
                 "text": "Adresa místa"
             },
             "optional": True
-        },
-        {
-            "type": "actions",
-            "block_id": "submit_block",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "Přidat událost"
-                    },
-                    "style": "primary",
-                    "action_id": "submit_event"
-                }
-            ]
         }
     ]
 
@@ -169,15 +138,37 @@ def build_event_list_blocks(events: List[Dict], page: int) -> List[Dict[str, Any
     """Build blocks for event list view"""
     blocks = []
     
-    # Add header actions
+    # Add overflow menu with back button
     blocks.append({
         "type": "actions",
         "elements": [
             {
-                "type": "button",
-                "text": {"type": "plain_text", "text": "Přidat událost"},
-                "action_id": "go_to_add_event"
-            },
+                "type": "overflow",
+                "options": [
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Přidat událost"
+                        },
+                        "value": "go_to_add_event"
+                    },
+                    {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Připomínky"
+                        },
+                        "value": "go_to_reminders"
+                    }
+                ],
+                "action_id": "events_menu_overflow"
+            }
+        ]
+    })
+    
+    # Add back button separately
+    blocks.append({
+        "type": "actions",
+        "elements": [
             {
                 "type": "button",
                 "text": {"type": "plain_text", "text": "Zpět"},
@@ -294,20 +285,36 @@ def build_event_list_blocks(events: List[Dict], page: int) -> List[Dict[str, Any
 
     return blocks
 
-def add_event(client: WebClient, user_id: str, logger: logging.Logger) -> None:
+def add_event(client: WebClient, trigger_id: str, logger: logging.Logger) -> None:
     """
-    Show event creation form to user.
+    Show event creation modal to user.
     
     Args:
         client: Slack WebClient instance
-        user_id: User ID to show form to
+        trigger_id: Trigger ID to open modal
         logger: Logger instance
     """
     try:
         blocks = build_event_form_blocks()
-        client.views_publish(
-            user_id=user_id,
-            view={"type": "home", "blocks": blocks}
+        client.views_open(
+            trigger_id=trigger_id,
+            view={
+                "type": "modal",
+                "callback_id": "add_event_modal",
+                "title": {
+                    "type": "plain_text",
+                    "text": "Přidat událost"
+                },
+                "blocks": blocks,
+                "submit": {
+                    "type": "plain_text",
+                    "text": "Přidat"
+                },
+                "close": {
+                    "type": "plain_text",
+                    "text": "Zavřít"
+                }
+            }
         )
     except Exception as e:
         logger.error(f"Error showing event form: {e}")
@@ -340,20 +347,37 @@ def show_events(client: WebClient, user_id: str, logger: logging.Logger, page: i
                             "type": "actions",
                             "elements": [
                                 {
-                                    "type": "button",
-                                    "text": {
-                                        "type": "plain_text",
-                                        "text": "Přidat událost"
-                                    },
-                                    "action_id": "go_to_add_event"
-                                },
+                                    "type": "overflow",
+                                    "options": [
+                                        {
+                                            "text": {
+                                                "type": "plain_text",
+                                                "text": "Přidat událost"
+                                            },
+                                            "value": "go_to_add_event"
+                                        },
+                                        {
+                                            "text": {
+                                                "type": "plain_text",
+                                                "text": "Připomínky"
+                                            },
+                                            "value": "go_to_reminders"
+                                        }
+                                    ],
+                                    "action_id": "events_menu_overflow"
+                                }
+                            ]
+                        },
+                        {
+                            "type": "actions",
+                            "elements": [
                                 {
                                     "type": "button",
                                     "text": {
                                         "type": "plain_text",
                                         "text": "Zpět"
                                     },
-                                    "action_id": f"go_to_attendance"
+                                    "action_id": "go_to_attendance"
                                 }
                             ]
                         },

@@ -1,14 +1,11 @@
 from datetime import datetime
 from typing import Any, Dict, List
-import tempfile
-import os
+import io
 import csv
-import requests
 import logging
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from db import load_participants_in_range
-import config
 
 EXPORT_MODAL = {
     "type": "modal",
@@ -24,7 +21,7 @@ class ExportError(Exception):
 
 def export_data_to_csv(start_date: str, end_date: str, user_id: str, client: WebClient, logger: logging.Logger) -> None:
     """
-    Export participant data to CSV and upload to Slack.
+    Export participant data to CSV and send directly to user via DM.
     
     Args:
         start_date: Start date in YYYY-MM-DD format
@@ -45,65 +42,36 @@ def export_data_to_csv(start_date: str, end_date: str, user_id: str, client: Web
             logger.error(f"Invalid date format: {e}")
             raise ExportError(f"Neplatný formát data: {e}")
 
+        # Load data from database
         data = load_participants_in_range(start_date, end_date)
         required_keys = ["name", "category", "event_name", "status", "note", "start_time", "end_time"]
         
-        # Use secure temporary file
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as temp_file:
-            writer = csv.DictWriter(temp_file, fieldnames=required_keys)
-            writer.writeheader()
-            for row in data:
-                csv_row = {key: row.get(key, '') for key in required_keys}
-                writer.writerow(csv_row)
-            
-            temp_path = temp_file.name
+        # Generate CSV content in memory
+        csv_buffer = io.StringIO()
+        writer = csv.DictWriter(csv_buffer, fieldnames=required_keys)
+        writer.writeheader()
+        for row in data:
+            csv_row = {key: row.get(key, '') for key in required_keys}
+            writer.writerow(csv_row)
+        
+        csv_content = csv_buffer.getvalue()
+        csv_buffer.close()
 
-        try:
-            file_size = os.path.getsize(temp_path)
-            filename = f"attendance_{start_date}_to_{end_date}.csv"
-
-            # Get upload URL
-            upload_response = client.files_getUploadURLExternal(
-                filename=filename,
-                length=file_size
-            )
-            
-            if not upload_response["ok"]:
-                logger.error(f"Failed to get upload URL: {upload_response['error']}")
-                raise ExportError("Nepodařilo se získat URL pro nahrání souboru")
-
-            # Upload file
-            with open(temp_path, 'rb') as f:
-                response = requests.post(
-                    upload_response["upload_url"], 
-                    files={'file': f},
-                    timeout=30
-                )
-            response.raise_for_status()
-
-            # Complete upload
-            file_id = upload_response["file_id"]
-            complete_upload_response = client.files_completeUploadExternal(
-                files=[{"id": file_id, "title": filename}],
-                channel_id=config.export_channel
-            )
-
-            if not complete_upload_response["ok"]:
-                logger.error(f"Failed to complete upload: {complete_upload_response['error']}")
-                raise ExportError("Nepodařilo se dokončit nahrávání souboru")
-
-            # Get channel name and notify user
-            channel_response = client.conversations_info(channel=config.export_channel)
-            channel_name = channel_response['channel']['name']
-            client.chat_postMessage(
-                channel=user_id,
-                text=f"✅ Docházka byla vyexportována do kanálu #{channel_name}"
-            )
-
-        finally:
-            # Clean up temporary file
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
+        # Open DM conversation with user to get channel ID
+        dm_response = client.conversations_open(users=[user_id])
+        dm_channel_id = dm_response["channel"]["id"]
+        
+        # Upload CSV file directly to user's DM
+        filename = f"attendance_{start_date}_to_{end_date}.csv"
+        client.files_upload_v2(
+            channel=dm_channel_id,
+            content=csv_content,
+            filename=filename,
+            title="Export docházky",
+            initial_comment=f"📊 Export docházky od {start_date} do {end_date} obsahuje {len(data)} záznamů.",
+        )
+        
+        logger.info(f"User {user_id} exported {len(data)} records from {start_date} to {end_date}")
 
     except SlackApiError as e:
         logger.error(f"Slack API error in export: {e}")
@@ -115,7 +83,7 @@ def export_data_to_csv(start_date: str, end_date: str, user_id: str, client: Web
         logger.error(f"Export error: {e}")
         client.chat_postMessage(
             channel=user_id,
-            text=f"❌ Chyba při na docházky."
+            text=f"❌ Chyba při exportu docházky."
         )
     except Exception as e:
         logger.error(f"Unexpected error during export: {e}")

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Dict, List, Any, Optional
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 import logging
@@ -56,62 +56,9 @@ def fetch_channels(client: WebClient, logger: logging.Logger) -> List[Dict[str, 
         logger.error(f"Error fetching channels: {e}")
         return [DEFAULT_OPTION]
 
-def get_initial_option(id: Optional[str], array: List[Dict[str, Any]]) -> Tuple[str, str]:
-    """Get initial option for a select menu"""
-    if not id or id == "None":
-        return DEFAULT_OPTION["text"]["text"], DEFAULT_OPTION["value"]
-    
-    for item in array:
-        if item["value"] == id:
-            return item["text"]["text"], item["value"]
-    return DEFAULT_OPTION["text"]["text"], DEFAULT_OPTION["value"]
-
-def build_settings_blocks(channels: List[Dict], config_values: Dict) -> List[Dict]:
+def build_settings_blocks(config_values: Dict) -> List[Dict]:
     """Build settings view blocks"""
-    exp_n, exp_v = get_initial_option(config_values["export_channel"], channels)
-
     return [
-        # Header section
-        {
-            "type": "actions",
-            "elements": [{
-                "type": "button",
-                "text": {"type": "plain_text", "text": "Zpět"},
-                "action_id": "go_to_attendance"
-            }]
-        },
-        {
-            "type": "header",
-            "text": {
-                "type": "plain_text",
-                "text": "Nastavení aplikace",
-                "emoji": True
-            }
-        },
-        {
-            "type": "input",
-            "block_id": "export_channel_block",
-            "element": {
-                "type": "static_select",
-                "action_id": "export_channel_select",
-                "placeholder": {
-                    "type": "plain_text",
-                    "text": "Vyberte kanál pro export"
-                },
-                "options": channels,
-                "initial_option": {
-                    "text": {
-                        "type": "plain_text",
-                        "text": exp_n,
-                    },
-                    "value": exp_v
-                },
-            },
-            "label": {
-                "type": "plain_text",
-                "text": "Exportní kanál"
-            }
-        },
         {
             "type": "input",
             "block_id": "coming_text_block",
@@ -189,76 +136,59 @@ def build_settings_blocks(channels: List[Dict], config_values: Dict) -> List[Dic
                 "type": "plain_text",
                 "text": "Text pro 'Nepřijdu' (trénink)"
             }
-        },
-        {
-            "type": "actions",
-            "block_id": "save_settings_block",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "Uložit nastavení"
-                    },
-                    "style": "primary",
-                    "action_id": "save_settings"
-                }
-            ]
         }
     ]
 
-def show_settings(client: WebClient, user_id: str, logger: logging.Logger) -> None:
+def show_settings(client: WebClient, trigger_id: str, logger: logging.Logger) -> None:
     """
-    Show settings form to user.
+    Show settings modal to user.
     
     Args:
         client: Slack WebClient instance
-        user_id: User ID to show settings to
+        trigger_id: Trigger ID from action to open modal
         logger: Logger instance
         
     Raises:
         SettingsError: If settings cannot be displayed
     """
     try:
-        # Fetch required data
-        channels = fetch_channels(client, logger)
-
-        # Build and publish view
-        blocks = build_settings_blocks(channels, config.config)
+        # Build and open modal
+        blocks = build_settings_blocks(config.config)
         
-        client.views_publish(
-            user_id=user_id,
+        client.views_open(
+            trigger_id=trigger_id,
             view={
-                "type": "home",
-                "blocks": blocks
+                "type": "modal",
+                "callback_id": "settings_modal",
+                "title": {
+                    "type": "plain_text",
+                    "text": "Nastavení aplikace"
+                },
+                "blocks": blocks,
+                "submit": {
+                    "type": "plain_text",
+                    "text": "Uložit"
+                },
+                "close": {
+                    "type": "plain_text",
+                    "text": "Zavřít"
+                }
             }
         )
 
     except SlackApiError as e:
         logger.error(f"Slack API error in settings: {e}")
-        client.chat_postMessage(
-            channel=user_id,
-            text="❌ Chyba při načítání nastavení. Zkuste to prosím později."
-        )
-    except SettingsError as e:
-        logger.error(f"Settings error: {e}")
-        client.chat_postMessage(
-            channel=user_id,
-            text="❌ Chyba při načítání nastavení. Zkuste to prosím později."
-        )
+        raise SettingsError(f"Failed to open settings modal: {e}")
     except Exception as e:
         logger.error(f"Error displaying settings: {e}")
-        client.chat_postMessage(
-            channel=user_id,
-            text="❌ Neočekávaná chyba při zobrazení nastavení."
-        )
+        raise SettingsError(f"Unexpected error displaying settings: {e}")
 
 def go_to_settings(body: Dict[str, Any], client: WebClient, logger: logging.Logger) -> None:
     """
     Handle the action to go to settings.
     """
     try:
-        user_id = body["user"]["id"]
-        show_settings(client, user_id, logger)
+        trigger_id = body["trigger_id"]
+        show_settings(client, trigger_id, logger)
     except Exception as e:
         logger.error(f"Error: {datetime.now()} - {e}")

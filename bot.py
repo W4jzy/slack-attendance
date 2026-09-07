@@ -1,7 +1,11 @@
 import os
 import re
 import logging
-from datetime import datetime
+import signal
+import sys
+import threading
+import time
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from typing import Dict, Any, Tuple, List, Callable, Optional
 from slack_bolt import App
@@ -14,6 +18,7 @@ from events import *
 from export import *
 from settings import *
 from edit import *
+from reminders import *
 import config
 import calendar
 import locale
@@ -151,6 +156,7 @@ MENU_ACTIONS: Dict[str, Callable] = {
     "go_to_all_events": lambda ack, body, client, logger: go_to_all_events(ack, body, client, logger),
     "go_to_settings": lambda ack, body, client, logger: go_to_settings(body, client, logger),
     "go_to_edit_attendance": lambda ack, body, client, logger: go_to_edit_attendance(ack, body, client, logger),
+    "go_to_reminders": lambda ack, body, client, logger: go_to_reminders(ack, body, client, logger),
     "mass_insert": lambda ack, body, client, logger: show_mass_insert(body, client, logger),
     "refresh_home_tab": lambda ack, body, client, logger: handle_refresh(ack, body, client, logger)
 }
@@ -175,6 +181,13 @@ class SlackBotError(Exception):
 # Initialize app and client
 app = App(token=SLACK_BOT_TOKEN)
 client = WebClient(token=SLACK_BOT_TOKEN)
+
+# Initialize logger for reminder loop
+logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 def get_user_by_id(
     user_id: str,
@@ -377,6 +390,17 @@ def handle_main_menu_overflow(ack: Any, body: Dict[str, Any], client: WebClient,
     except Exception as e:
         logger.error(f"Error in menu overflow: {datetime.now()} - {e}")
 
+@app.action("events_menu_overflow")
+def handle_events_menu_overflow(ack: Any, body: Dict[str, Any], client: WebClient, logger: logging.Logger) -> None:
+    """Handle events menu overflow action selection."""
+    try:
+        ack()
+        selected_option = body['actions'][0]['selected_option']['value']
+        if action_handler := MENU_ACTIONS.get(selected_option):
+            action_handler(ack, body, client, logger)
+    except Exception as e:
+        logger.error(f"Error in events menu overflow: {datetime.now()} - {e}")
+
 @app.action("go_to_add_event")
 def go_to_add_event(
     ack: Any,
@@ -389,8 +413,8 @@ def go_to_add_event(
     """
     try:
         ack()
-        user_id = body["user"]["id"]
-        add_event(client, user_id, logger)
+        trigger_id = body["trigger_id"]
+        add_event(client, trigger_id, logger)
     except SlackApiError as e:
         logger.error(f"Slack API error in add event: {datetime.now()} - {e}")
         raise
@@ -442,6 +466,28 @@ def go_to_edit_attendance(
         logger.error(f"Error handling edit attendance: {datetime.now()} - {e}")
         raise
 
+@app.action("go_to_reminders")
+def go_to_reminders(
+    ack: Any,
+    body: Dict[str, Any],
+    client: WebClient,
+    logger: logging.Logger
+) -> None:
+    """
+    Handle action to show reminders list.
+    """
+    try:
+        ack()
+        if not (user_id := body.get("user", {}).get("id")):
+            raise ValueError("User ID not found in request body")
+        show_reminders_list(client, user_id, logger)
+    except SlackApiError as e:
+        logger.error(f"Slack API error in reminders: {datetime.now()} - {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Error handling reminders: {datetime.now()} - {e}")
+        raise
+
 @app.action("edit_overflow")
 def handle_edit_overflow(
     ack: Any,
@@ -479,14 +525,20 @@ def go_to_all_events(
     ack: Any,
     body: Dict[str, Any], 
     client: WebClient, 
-    logger: logging.Logger,
-    page: Optional[int] = DEFAULT_PAGE
+    logger: logging.Logger
 ) -> None:
     """
     Navigate to all events view with pagination.
     """
     try:
         ack()
+        # Extract page from button value if present, otherwise use default
+        page = DEFAULT_PAGE
+        if "actions" in body and body["actions"]:
+            value = body["actions"][0].get("value")
+            if value and value.isdigit():
+                page = int(value)
+        
         if page < 0:
             raise ValueError("Page number cannot be negative")
             
@@ -948,14 +1000,14 @@ def save_settings_to_config(settings: Dict[str, str]) -> None:
         config.set_setting(key, value)
     config.save_settings()
 
-@app.action("save_settings")
+@app.view("settings_modal")
 def handle_save_settings(
     ack: Any,
     body: Dict[str, Any],
     logger: logging.Logger
 ) -> None:
     """
-    Handle settings save action.
+    Handle settings modal submission.
     
     Args:
         ack: Acknowledge function
@@ -965,28 +1017,15 @@ def handle_save_settings(
     try:
         ack()
         values = body['view']['state']['values']
-        user_id = body['user']['id']
-
-        # Get group selections
-        settings = {
-            "export_channel": get_selected_option_value(
-                values, 'export_channel_block', 'export_channel_select'
-            )
-        }
 
         # Get text inputs
+        settings = {}
         for key, default in DEFAULT_SETTINGS.items():
             settings[key] = get_input_value(
                 values, f'{key}_block', f'{key}_input', default
             )
 
         save_settings_to_config(settings)
-
-        client.chat_postMessage(
-            channel=user_id,
-            text="Nastavení bylo úspěšně uloženo."
-        )
-        show_attendance(client, user_id, logger)
 
     except SlackApiError as e:
         logger.error(f"Slack API error in settings: {datetime.now()} - {e}")
@@ -1014,14 +1053,14 @@ def validate_event_fields(values: Dict[str, Any]) -> Dict[str, Any]:
     event_data["address"] = values.get("address_block", {}).get("address_input", {}).get("value", "")
     return event_data
 
-@app.action("submit_event")
+@app.view("add_event_modal")
 def handle_submit_event(
     ack: Any,
     body: Dict[str, Any],
     logger: logging.Logger
 ) -> None:
     """
-    Handle event submission.
+    Handle event submission from modal.
     
     Args:
         ack: Acknowledge function
@@ -1029,22 +1068,17 @@ def handle_submit_event(
         logger: Logger instance
     """
     try:
-        ack()
         values = body["view"]["state"]["values"]
-        user_id = body["user"]["id"]
         
         event_data = validate_event_fields(values)
         if not event_data:
-            client.chat_postMessage(channel=user_id, text=MESSAGES["ERROR"])
+            ack(response_action="errors", errors={
+                "name_block": MESSAGES["ERROR"]
+            })
             return
 
+        ack()
         add_event_to_db(**event_data)
-        client.chat_postMessage(
-            channel=user_id,
-            text=MESSAGES["SUCCESS"].format(name=event_data["name"])
-        )
-        
-        go_to_all_events(ack, body, client, logger)
         
     except SlackApiError as e:
         logger.error(f"Slack API error in event submission: {datetime.now()} - {e}")
@@ -1383,7 +1417,7 @@ def handle_select_event(
     logger: logging.Logger
 ) -> None:
     """
-    Handle event selection action.
+    Handle event selection action - opens modal for attendance edit.
     
     Args:
         ack: Acknowledge function
@@ -1393,8 +1427,7 @@ def handle_select_event(
     """
     try:
         ack()
-        if not (user_id := body.get("user", {}).get("id")):
-            raise ValueError(ERROR_MESSAGES["USER_NOT_FOUND"])
+        trigger_id = body["trigger_id"]
             
         action_id = body['actions'][0]['action_id']
         event_id = action_id.split('_')[-1]
@@ -1402,17 +1435,14 @@ def handle_select_event(
         if not event_id.isdigit():
             raise ValueError(ERROR_MESSAGES["INVALID_ID"])
             
-        show_edit_attendance_players(client, logger, event_id, user_id)
+        show_edit_attendance_for_event(client, logger, event_id, trigger_id)
         
     except ValueError as e:
         logger.error(f"Validation error: {datetime.now()} - {e}")
-        client.chat_postMessage(channel=user_id, text=str(e))
     except SlackApiError as e:
         logger.error(f"Slack API error: {datetime.now()} - {e}")
-        client.chat_postMessage(channel=user_id, text=ERROR_MESSAGES["GENERAL_ERROR2"])
     except Exception as e:
         logger.error(f"Error handling select event: {datetime.now()} - {e}")
-        client.chat_postMessage(channel=user_id, text=ERROR_MESSAGES["GENERAL_ERROR2"])
 
 def parse_event_id(action_id: str) -> str:
     """Extract event ID from action ID."""
@@ -1471,7 +1501,7 @@ def select_participant_in_event(
         client.chat_postMessage(channel=view_user_id, text=ERROR_MESSAGES["SELECTION_ERROR"])
 
 @app.options("user_selection")
-def handle_user_selection(
+def handle_user_selection_options(
     ack: Any,
     body: Dict[str, Any],
     logger: logging.Logger
@@ -1520,9 +1550,103 @@ def handle_user_selection(
         logger.error(f"Error searching users: {datetime.now()} - {e}")
         ack(options=[])
 
+@app.options("user_select")
+def handle_user_select_options(
+    ack: Any,
+    body: Dict[str, Any],
+    logger: logging.Logger
+) -> None:
+    """
+    Handle user select options loading (for modal).
+    
+    Args:
+        ack: Acknowledge function
+        body: Request body with search input
+        logger: Logger instance
+    """
+    try:
+        user_input = body.get("value", "").strip().lower()
+        users = load_users_from_db()
+
+        filtered_users = (
+            [user for user in users if user_input in user['name'].lower()]
+            if user_input
+            else users
+        )
+
+        # Sort by name and limit results
+        sorted_users = sorted(
+            filtered_users, 
+            key=lambda x: x['name']
+        )[:MAX_RESULTS]
+
+        if not sorted_users:
+            ack(options=[])
+            return
+
+        options = [
+            {
+                "text": {"type": "plain_text", "text": user['name']},
+                "value": user['user_id']
+            }
+            for user in sorted_users
+        ]
+        ack(options=options)
+        
+    except SlackApiError as e:
+        logger.error(f"Slack API error in user search: {datetime.now()} - {e}")
+        ack(options=[])
+    except Exception as e:
+        logger.error(f"Error searching users: {datetime.now()} - {e}")
+        ack(options=[])
+
 @app.action("user_selection")
-def handle_user_selection(ack, body, logger):
+def handle_user_selection_action(ack, body, logger):
+    """Handle user selection action (no-op)"""
     ack()
+
+@app.action("user_select")
+def handle_user_select_in_modal(
+    ack: Any,
+    body: Dict[str, Any],
+    client: WebClient,
+    logger: logging.Logger
+) -> None:
+    """
+    Handle user selection in edit attendance modal - updates modal with user's current status.
+    
+    Args:
+        ack: Acknowledge function
+        body: Request body
+        client: Slack client instance
+        logger: Logger instance
+    """
+    try:
+        ack()
+        
+        # Get selected user
+        selected_option = body['actions'][0].get('selected_option')
+        if not selected_option:
+            return
+            
+        user_id = selected_option['value']
+        
+        # Get event_id from callback_id
+        view = body['view']
+        callback_id = view['callback_id']
+        event_id = callback_id.replace('edit_attendance_', '')
+        
+        # Update modal with user's attendance
+        update_edit_attendance_modal(
+            client=client,
+            logger=logger,
+            event_id=event_id,
+            user_id=user_id,
+            view_id=view['id']
+        )
+        
+    except Exception as e:
+        logger.error(f"Error handling user select in modal: {datetime.now()} - {e}")
 
 def get_form_values(values: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
     """Extract and validate form values."""
@@ -1739,40 +1863,51 @@ def post_event_to_channel(
     """Post event to channel."""
     try:
         event = load_event_from_db(event_id)
-        event_text = text
+        
+        # Get sender information
+        if user_id:
+            sender_name = get_user_by_id(user_id, logger)
+            footer_text = f"\n\n_Odeslal: {sender_name}_"
+        else:
+            # For future automatic reminders
+            footer_text = "\n\n_Automatický reminder_"
+        
+        # Append footer to message
+        message_text = text + footer_text
         
         client.chat_postMessage(
-        channel=channel_id,
-        text=text,
-        blocks=[
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": text
-                }
-            },
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "Zadat docházku"
-                        },
-                        "action_id": "attendance_modal",
-                        "value": f"event_id_{event_id}"
+            channel=channel_id,
+            text=message_text,
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": message_text
                     }
-                ]
-            }
-        ]
-    )
-        
-        client.chat_postMessage(
-            channel=user_id,
-            text=MESSAGES["SHARE_SUCCESS"]
+                },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Zadat docházku"
+                            },
+                            "action_id": "attendance_modal",
+                            "value": f"event_id_{event_id}"
+                        }
+                    ]
+                }
+            ]
         )
+        
+        if user_id:
+            client.chat_postMessage(
+                channel=user_id,
+                text=MESSAGES["SHARE_SUCCESS"]
+            )
         
     except SlackApiError as e:
         logger.error(f"Slack API error in event sharing: {datetime.now()} - {e}")
@@ -1889,7 +2024,7 @@ def handle_select_user_category(
     logger: logging.Logger
 ) -> None:
     """
-    Handle selection of user for category editing.
+    Handle selection of user for category editing - opens modal.
     
     Args:
         ack: Acknowledge function
@@ -1899,8 +2034,7 @@ def handle_select_user_category(
     """
     try:
         ack()
-        if not (view_user_id := body.get("user", {}).get("id")):
-            raise ValueError("User ID not found in request body")
+        trigger_id = body["trigger_id"]
         
         values = body['view']['state']['values']
         if not (selected_user := values.get('user_category_selection_section', {})
@@ -1913,68 +2047,457 @@ def handle_select_user_category(
             client=client,
             logger=logger,
             user_id=selected_user,
-            view_user_id=view_user_id
+            trigger_id=trigger_id
         )
         
     except ValueError as e:
         logger.error(f"Validation error: {datetime.now()} - {e}")
-        client.chat_postMessage(channel=view_user_id, text=str(e))
     except SlackApiError as e:
         logger.error(f"Slack API error: {datetime.now()} - {e}")
-        client.chat_postMessage(channel=view_user_id, text="Chyba při výběru uživatele.")
     except Exception as e:
         logger.error(f"Error handling select user category: {datetime.now()} - {e}")
-        client.chat_postMessage(channel=view_user_id, text="Chyba při výběru uživatele.")
 
-@app.action("user_category_open")
-def handle_change_to_open_category(ack: Any, body: Dict[str, Any], client: WebClient, logger: logging.Logger) -> None:
+@app.view(re.compile(r"^edit_user_category_.+$"))
+def handle_edit_user_category_submit(
+    ack: Any,
+    body: Dict[str, Any],
+    logger: logging.Logger
+) -> None:
     """
-    Handle selection of Open category.
+    Handle user category edit modal submission.
     
     Args:
         ack: Acknowledge function
         body: Request body
-        client: Slack client instance
         logger: Logger instance
     """
     try:
+        # Extract user_id from callback_id
+        callback_id = body['view']['callback_id']
+        user_id = callback_id.replace('edit_user_category_', '')
+        
+        # Get selected category
+        values = body['view']['state']['values']
+        selected_category = values['category_block']['category_select']['selected_option']['value']
+        
+        # Update user category
+        update_user_category(user_id, selected_category, logger)
+        
         ack()
-        selected_user = body["actions"][0]["value"]
-        update_user_category(selected_user, "Open", logger)
-        show_edit_player_category(
-            client=client,
-            logger=logger,
-            user_id=selected_user,
-            view_user_id=body["user"]["id"]
-        )
+        
     except Exception as e:
-        logger.error(f"Error handling change to Open category: {datetime.now()} - {e}")
+        logger.error(f"Error handling edit user category submit: {datetime.now()} - {e}")
+        ack()
 
-@app.action("user_category_women")
-def handle_change_to_women_category(ack: Any, body: Dict[str, Any], client: WebClient, logger: logging.Logger) -> None:
+@app.view(re.compile(r"^edit_attendance_\d+$"))
+def handle_edit_attendance_submit(
+    ack: Any,
+    body: Dict[str, Any],
+    logger: logging.Logger
+) -> None:
     """
-    Handle selection of Women category.
+    Handle attendance edit modal submission.
     
     Args:
         ack: Acknowledge function
         body: Request body
-        client: Slack client instance
         logger: Logger instance
     """
     try:
-        ack()
-        selected_user = body["actions"][0]["value"]
-        update_user_category(selected_user, "Women", logger)
-        show_edit_player_category(
-            client=client,
-            logger=logger,
-            user_id=selected_user,
-            view_user_id=body["user"]["id"]
+        # Extract event_id from callback_id
+        callback_id = body['view']['callback_id']
+        event_id = callback_id.replace('edit_attendance_', '')
+        
+        # Get selected user and status
+        values = body['view']['state']['values']
+        
+        # Check if user was selected
+        user_block = values.get('user_block', {}).get('user_select', {})
+        selected_option = user_block.get('selected_option')
+        
+        if not selected_option:
+            ack(response_action="errors", errors={
+                "user_block": "Prosím vyberte hráče"
+            })
+            return
+        
+        user_id = selected_option['value']
+        
+        # Check if status was selected
+        status_block = values.get('status_block', {}).get('status_select', {})
+        status_option = status_block.get('selected_option')
+        
+        if not status_option:
+            ack(response_action="errors", errors={
+                "status_block": "Prosím vyberte docházku"
+            })
+            return
+        
+        status = status_option['value']
+        
+        # Save attendance
+        insert_participation(
+            event_id=event_id,
+            user_id=user_id,
+            status=status,
+            note="",
+            logger=logger
         )
+        
+        ack()
+        
     except Exception as e:
-        logger.error(f"Error handling change to Women category: {datetime.now()} - {e}")
+        logger.error(f"Error handling edit attendance submit: {datetime.now()} - {e}")
+        ack()
+
+# ---------- REMINDER HANDLERS ----------
+
+@app.action("open_add_reminder_modal")
+def handle_open_add_reminder_modal(
+    ack: Any,
+    body: Dict[str, Any],
+    client: WebClient,
+    logger: logging.Logger
+) -> None:
+    """
+    Handle action to open add reminder modal.
+    """
+    try:
+        ack()
+        open_add_reminder_modal(client, body["trigger_id"], logger)
+    except Exception as e:
+        logger.error(f"Error opening add reminder modal: {datetime.now()} - {e}")
+
+@app.view("add_reminder_modal")
+def handle_add_reminder_submission(
+    ack: Any,
+    body: Dict[str, Any],
+    client: WebClient,
+    logger: logging.Logger
+) -> None:
+    """
+    Handle submission of add reminder modal.
+    """
+    try:
+        ack()
+        user_id = body["user"]["id"]
+        
+        # Extract values from modal
+        values = body["view"]["state"]["values"]
+        reminder_type = values["reminder_type_block"]["reminder_type_select"]["selected_option"]["value"]
+        channel_id = values["channel_block"]["channel_select"]["selected_channel"]
+        remind_at_timestamp = values["remind_at_block"]["remind_at_input"]["selected_date_time"]
+        days_ahead = int(values["days_ahead_block"]["days_ahead_input"]["value"])
+        message = values["message_block"]["message_input"]["value"]
+        repeat_type = values["repeat_block"]["repeat_select"]["selected_option"]["value"]
+        
+        # Convert timestamp to datetime
+        remind_at = datetime.fromtimestamp(remind_at_timestamp)
+        
+        # Convert 'once' to None for database
+        if repeat_type == 'once':
+            repeat_type = None
+        
+        # Add reminder to database
+        add_reminder_to_db(
+            channel_id=channel_id,
+            remind_at=remind_at,
+            message=message,
+            repeat_type=repeat_type,
+            reminder_type=reminder_type,
+            days_ahead=days_ahead,
+            logger=logger
+        )
+        
+        # Send confirmation message
+        type_text = "zprávy" if reminder_type == "message" else f"sdílení událostí (+{days_ahead}d)"
+        client.chat_postMessage(
+            channel=user_id,
+            text=f"✅ Reminder byl úspěšně vytvořen! (Typ: {type_text})"
+        )
+        
+        # Refresh reminders list
+        show_reminders_list(client, user_id, logger)
+        
+    except Exception as e:
+        logger.error(f"Error handling add reminder submission: {datetime.now()} - {e}")
+        client.chat_postMessage(
+            channel=user_id,
+            text="❌ Chyba při vytváření reminderu."
+        )
+
+@app.action(re.compile(r"reminder_overflow_(\d+)"))
+def handle_reminder_overflow(
+    ack: Any,
+    body: Dict[str, Any],
+    client: WebClient,
+    logger: logging.Logger
+) -> None:
+    """
+    Handle reminder overflow menu actions.
+    """
+    try:
+        ack()
+        selected_option = body["actions"][0]["selected_option"]["value"]
+        
+        if selected_option.startswith("execute_now_reminder_"):
+            reminder_id = int(selected_option.split("_")[-1])
+            user_id = body["user"]["id"]
+            
+            # Execute reminder immediately
+            try:
+                success = execute_reminder_now(client, reminder_id, logger)
+                
+                if success:
+                    client.chat_postMessage(
+                        channel=user_id,
+                        text=f"⚡ Reminder {reminder_id} byl úspěšně proveden!"
+                    )
+                else:
+                    client.chat_postMessage(
+                        channel=user_id,
+                        text=f"❌ Nepodařilo se provést reminder {reminder_id}."
+                    )
+            except Exception as e:
+                logger.error(f"Error executing reminder now: {e}")
+                client.chat_postMessage(
+                    channel=user_id,
+                    text=f"❌ Chyba při provádění reminderu {reminder_id}."
+                )
+            
+            # Refresh reminders list
+            show_reminders_list(client, user_id, logger)
+            
+        elif selected_option.startswith("toggle_reminder_"):
+            reminder_id = int(selected_option.split("_")[-1])
+            user_id = body["user"]["id"]
+            
+            # Toggle reminder active status
+            try:
+                new_status = toggle_reminder_active(reminder_id, logger)
+                status_text = "aktivován" if new_status else "deaktivován"
+                
+                client.chat_postMessage(
+                    channel=user_id,
+                    text=f"{'✅' if new_status else '⏸️'} Reminder {reminder_id} byl {status_text}."
+                )
+            except Exception as e:
+                logger.error(f"Error toggling reminder: {e}")
+                client.chat_postMessage(
+                    channel=user_id,
+                    text=f"❌ Nepodařilo se změnit stav reminderu {reminder_id}."
+                )
+            
+            # Refresh reminders list
+            show_reminders_list(client, user_id, logger)
+            
+        elif selected_option.startswith("edit_reminder_"):
+            reminder_id = int(selected_option.split("_")[-1])
+            open_edit_reminder_modal(client, body["trigger_id"], reminder_id, logger)
+        elif selected_option.startswith("delete_reminder_"):
+            reminder_id = int(selected_option.split("_")[-1])
+            user_id = body["user"]["id"]
+            
+            # Delete reminder
+            success = delete_reminder(reminder_id, logger)
+            
+            if success:
+                client.chat_postMessage(
+                    channel=user_id,
+                    text=f"🗑️ Reminder {reminder_id} byl úspěšně smazán."
+                )
+            else:
+                client.chat_postMessage(
+                    channel=user_id,
+                    text=f"❌ Reminder {reminder_id} nebyl nalezen."
+                )
+            
+            # Refresh reminders list
+            show_reminders_list(client, user_id, logger)
+            
+    except Exception as e:
+        logger.error(f"Error handling reminder overflow: {datetime.now()} - {e}")
+
+@app.view(re.compile(r"edit_reminder_(\d+)"))
+def handle_edit_reminder_submission(
+    ack: Any,
+    body: Dict[str, Any],
+    client: WebClient,
+    logger: logging.Logger
+) -> None:
+    """
+    Handle submission of edit reminder modal.
+    """
+    try:
+        ack()
+        user_id = body["user"]["id"]
+        
+        # Extract reminder ID from callback_id
+        callback_id = body["view"]["callback_id"]
+        reminder_id = int(callback_id.split("_")[-1])
+        
+        # Extract values from modal
+        values = body["view"]["state"]["values"]
+        reminder_type = values["reminder_type_block"]["reminder_type_select"]["selected_option"]["value"]
+        channel_id = values["channel_block"]["channel_select"]["selected_channel"]
+        remind_at_timestamp = values["remind_at_block"]["remind_at_input"]["selected_date_time"]
+        days_ahead = int(values["days_ahead_block"]["days_ahead_input"]["value"])
+        message = values["message_block"]["message_input"]["value"]
+        repeat_type = values["repeat_block"]["repeat_select"]["selected_option"]["value"]
+        
+        # Convert timestamp to datetime
+        remind_at = datetime.fromtimestamp(remind_at_timestamp)
+        
+        # Convert 'once' to None for database
+        if repeat_type == 'once':
+            repeat_type = None
+        
+        # Update reminder in database
+        update_reminder(
+            reminder_id=reminder_id,
+            channel_id=channel_id,
+            remind_at=remind_at,
+            message=message,
+            repeat_type=repeat_type,
+            reminder_type=reminder_type,
+            days_ahead=days_ahead,
+            logger=logger
+        )
+        
+        # Send confirmation message
+        type_text = "zprávy" if reminder_type == "message" else f"sdílení událostí (+{days_ahead}d)"
+        client.chat_postMessage(
+            channel=user_id,
+            text=f"✅ Reminder {reminder_id} byl úspěšně upraven! (Typ: {type_text})"
+        )
+        
+        # Refresh reminders list
+        show_reminders_list(client, user_id, logger)
+        
+    except Exception as e:
+        logger.error(f"Error handling edit reminder submission: {datetime.now()} - {e}")
+        client.chat_postMessage(
+            channel=user_id,
+            text="❌ Chyba při úpravě reminderu."
+        )
+
+def signal_handler(sig, frame):
+    """Handle shutdown signals gracefully."""
+    print("\n🛑 Ukončuji aplikaci... Prosím chvilku strpení.")
+    sys.exit(0)
+
+# ---------- REMINDER TASK LOOP ----------
+
+reminder_stop_event = threading.Event()
+
+def wait_for_30min_alignment():
+    """
+    Wait until the current time aligns to :00 or :30 minutes.
+    Similar to the before_loop in the reference code.
+    """
+    while True:
+        now = datetime.now()
+        minute = now.minute
+        second = now.second
+        
+        # Check if we're at :00 or :30 with 0 seconds
+        if minute % 30 == 0 and second == 0:
+            logger.info(f"Reminder loop aligned at {now}")
+            return
+        
+        # Calculate next alignment time
+        base = now.replace(second=0, microsecond=0)
+        add_minutes = (30 - (minute % 30)) % 30
+        if add_minutes == 0 and second > 0:
+            add_minutes = 30
+        
+        target = base + timedelta(minutes=add_minutes)
+        wait_seconds = (target - now).total_seconds()
+        
+        # Sleep in small increments to allow for shutdown
+        sleep_increment = min(1.0, wait_seconds)
+        for _ in range(int(wait_seconds)):
+            if reminder_stop_event.is_set():
+                return
+            time.sleep(sleep_increment)
+            if wait_seconds < 1:
+                time.sleep(wait_seconds)
+                break
+
+def reminder_loop_thread():
+    """
+    Background thread that processes reminders every 30 minutes.
+    """
+    logger.info("Starting reminder loop thread...")
+    
+    # Wait for initial alignment
+    wait_for_30min_alignment()
+    
+    while not reminder_stop_event.is_set():
+        try:
+            logger.info(f"Processing reminders at {datetime.now()}")
+            process_due_reminders(client, logger)
+        except Exception as e:
+            logger.error(f"Error in reminder loop: {e}")
+        
+        # Calculate next 30-minute alignment to prevent drift
+        now = datetime.now()
+        current_minute = now.minute
+        
+        # Calculate minutes to next :00 or :30
+        if current_minute < 30:
+            target_minute = 30
+        else:
+            target_minute = 0
+            
+        # Create target datetime
+        target = now.replace(second=0, microsecond=0)
+        if target_minute == 0:
+            target = target + timedelta(hours=1)
+            target = target.replace(minute=0)
+        else:
+            target = target.replace(minute=target_minute)
+        
+        # Calculate wait time in seconds
+        wait_seconds = (target - datetime.now()).total_seconds()
+        
+        # Wait until target time or stop event
+        end_time = datetime.now() + timedelta(seconds=wait_seconds)
+        while datetime.now() < end_time:
+            if reminder_stop_event.is_set():
+                logger.info("Stopping reminder loop...")
+                return
+            time.sleep(1)
+
+def start_reminder_loop():
+    """
+    Start the reminder loop in a background thread.
+    """
+    thread = threading.Thread(target=reminder_loop_thread, daemon=True)
+    thread.start()
+    logger.info("Reminder loop thread started")
 
 if __name__ == "__main__":
-    config.load_settings()
-    handler = SocketModeHandler(app, SLACK_APP_TOKEN)
-    handler.start()
+    # Setup signal handlers for graceful shutdown
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    try:
+        config.load_settings()
+        
+        # Start reminder loop in background
+        start_reminder_loop()
+        
+        handler = SocketModeHandler(app, SLACK_APP_TOKEN)
+        print("✅ Slack bot úspěšně spuštěn!")
+        print("⏰ Reminder loop aktivován (každých 30 minut)")
+        print("ℹ️  Pro ukončení použijte Ctrl+C")
+        handler.start()
+    except KeyboardInterrupt:
+        print("\n🛑 Ukončuji aplikaci...")
+        reminder_stop_event.set()
+        sys.exit(0)
+    except Exception as e:
+        print(f"❌ Chyba při spuštění aplikace: {e}")
+        reminder_stop_event.set()
+        sys.exit(1)

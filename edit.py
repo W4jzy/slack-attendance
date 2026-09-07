@@ -4,39 +4,230 @@ from slack_sdk.errors import SlackApiError
 from datetime import datetime
 import logging
 import config
-from db import load_events_by_date_from_db, load_event_from_db, load_user_in_event, load_user_from_db
+from db import load_events_by_date_from_db, load_event_from_db, load_user_in_event, load_user_from_db, load_participants_from_event
 
 class EditError(Exception):
     """Base exception for edit related errors"""
     pass
 
-def build_user_category_blocks() -> List[Dict[str, Any]]:
-    """Build blocks for user category selection and update"""
-    return [
+def build_edit_attendance_modal(event: Dict[str, Any], selected_user: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Build modal for editing attendance"""
+    coming_text = config.coming_text
+    late_text = config.late_text
+    notcoming_text = config.notcoming_text
+    
+    if event['type'] == "Trénink":
+        coming_text = config.coming_training
+        late_text = config.late_training
+        notcoming_text = config.notcoming_training
+    
+    status_options = [
+        {
+            "text": {"type": "plain_text", "text": coming_text},
+            "value": "Coming"
+        },
+        {
+            "text": {"type": "plain_text", "text": late_text},
+            "value": "Late"
+        },
+        {
+            "text": {"type": "plain_text", "text": notcoming_text},
+            "value": "Not Coming"
+        }
+    ]
+    
+    blocks = [
         {
             "type": "section",
-            "text": {"type": "mrkdwn", "text": "*Vyberte hráče pro úpravu kategorie*"},
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*Událost:* {event['name']}\n*Typ:* {event['type']}"
+            }
         },
         {
-            "type": "actions",
-            "block_id": "user_category_selection_section",
-            "elements": [
-                {
-                    "type": "external_select",
-                    "action_id": "user_selection",
-                    "placeholder": {"type": "plain_text", "text": "Vyberte hráče..."},
-                    "min_query_length": 2
-                },
-                {
-                    "type": "button",
-                    "style": "primary",
-                    "text": {"type": "plain_text", "text": "Potvrdit"},
-                    "action_id": "select_user_category"
-                }
-            ]
-        },
-        {"type": "divider"}
+            "type": "section",
+            "block_id": "user_block",
+            "text": {
+                "type": "mrkdwn",
+                "text": "*Vyberte hráče:*"
+            },
+            "accessory": {
+                "type": "external_select",
+                "action_id": "user_select",
+                "placeholder": {"type": "plain_text", "text": "Začněte psát jméno..."},
+                "min_query_length": 2
+            }
+        }
     ]
+    
+    # If user is selected, add their info and pre-fill status
+    if selected_user:
+        # Update user select with selected value
+        blocks[1]["accessory"]["initial_option"] = {
+            "text": {"type": "plain_text", "text": selected_user['name']},
+            "value": selected_user['user_id']
+        }
+        
+        # Add status input with pre-selected value if exists
+        status_block = {
+            "type": "input",
+            "block_id": "status_block",
+            "element": {
+                "type": "radio_buttons",
+                "action_id": "status_select",
+                "options": status_options
+            },
+            "label": {
+                "type": "plain_text",
+                "text": "Docházka"
+            }
+        }
+        
+        # Pre-select current status if exists
+        if selected_user.get('status'):
+            for option in status_options:
+                if option["value"] == selected_user['status']:
+                    status_block["element"]["initial_option"] = option
+                    break
+        
+        blocks.append(status_block)
+    
+    return {
+        "type": "modal",
+        "callback_id": f"edit_attendance_{event['id']}",
+        "title": {
+            "type": "plain_text",
+            "text": "Upravit docházku"
+        },
+        "submit": {
+            "type": "plain_text",
+            "text": "Uložit"
+        },
+        "close": {
+            "type": "plain_text",
+            "text": "Zavřít"
+        },
+        "blocks": blocks
+    }
+
+def show_edit_attendance_for_event(
+    client: WebClient,
+    logger: logging.Logger,
+    event_id: str,
+    trigger_id: str
+) -> None:
+    """Show attendance edit modal for event"""
+    try:
+        event = load_event_from_db(event_id)
+        if not event:
+            raise EditError(f"Event with ID {event_id} not found")
+        
+        modal = build_edit_attendance_modal(event)
+        client.views_open(trigger_id=trigger_id, view=modal)
+    except Exception as e:
+        logger.error(f"Error showing edit attendance modal: {e}")
+        raise EditError("Failed to show attendance edit modal")
+
+def update_edit_attendance_modal(
+    client: WebClient,
+    logger: logging.Logger,
+    event_id: str,
+    user_id: str,
+    view_id: str
+) -> None:
+    """Update attendance edit modal with selected user's data"""
+    try:
+        event = load_event_from_db(event_id)
+        if not event:
+            raise EditError(f"Event with ID {event_id} not found")
+        
+        # Load user's attendance for this event
+        participant = load_user_in_event(event_id, user_id)
+        
+        # Build user info dict
+        if participant:
+            selected_user = participant
+        else:
+            # User not found in event, load basic user info
+            user_info = load_user_from_db(user_id)
+            selected_user = {
+                'user_id': user_id,
+                'name': user_info['name'],
+                'status': None
+            }
+        
+        modal = build_edit_attendance_modal(event, selected_user)
+        client.views_update(view_id=view_id, view=modal)
+        
+    except Exception as e:
+        logger.error(f"Error updating edit attendance modal: {e}")
+        raise EditError("Failed to update attendance edit modal")
+
+def build_player_category_modal(user_info: Dict[str, Any]) -> Dict[str, Any]:
+    """Build modal for player category edit"""
+    user_name = user_info['name']
+    user_category = user_info.get('category', 'Open')
+    
+    return {
+        "type": "modal",
+        "callback_id": f"edit_user_category_{user_info['user_id']}",
+        "title": {
+            "type": "plain_text",
+            "text": "Upravit kategorii"
+        },
+        "submit": {
+            "type": "plain_text",
+            "text": "Uložit"
+        },
+        "close": {
+            "type": "plain_text",
+            "text": "Zavřít"
+        },
+        "blocks": [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Hráč:* {user_name}"
+                }
+            },
+            {
+                "type": "input",
+                "block_id": "category_block",
+                "element": {
+                    "type": "radio_buttons",
+                    "action_id": "category_select",
+                    "options": [
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Open"
+                            },
+                            "value": "Open"
+                        },
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Women"
+                            },
+                            "value": "Women"
+                        }
+                    ],
+                    "initial_option": {
+                        "text": {
+                            "type": "plain_text",
+                            "text": user_category
+                        },
+                        "value": user_category
+                    }
+                },
+                "label": {
+                    "type": "plain_text",
+                    "text": "Kategorie"
+                }
+            }
+        ]
+    }
 
 def build_export_blocks() -> List[Dict[str, Any]]:
     """Build blocks for export view"""
@@ -67,13 +258,12 @@ def build_back_blocks() -> List[Dict[str, Any]]:
         }
     ]
 
-def build_header_blocks(has_export: bool = False) -> List[Dict[str, Any]]:
+def build_header_blocks() -> List[Dict[str, Any]]:
     """Build header blocks for edit view"""
     blocks = []
     
-    if has_export:
-        blocks.extend(build_export_blocks())
-
+    # Export je nyní vždy dostupný (posílá se do DM)
+    blocks.extend(build_export_blocks())
     blocks.extend(build_back_blocks())
 
     blocks.extend([
@@ -207,8 +397,32 @@ def build_participant_blocks(event: Dict[str, Any], participant: Optional[Dict[s
 def show_edit_attendance(client: WebClient, user_id: str, logger: logging.Logger) -> None:
     """Show initial edit attendance view"""
     try:
-        blocks = build_header_blocks(has_export=config.export_channel != "None")
-        blocks.extend(build_user_category_blocks())
+        blocks = build_header_blocks()
+        blocks.extend([
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": "*Vyberte hráče pro úpravu kategorie*"},
+            },
+            {
+                "type": "actions",
+                "block_id": "user_category_selection_section",
+                "elements": [
+                    {
+                        "type": "external_select",
+                        "action_id": "user_selection",
+                        "placeholder": {"type": "plain_text", "text": "Vyberte hráče..."},
+                        "min_query_length": 2
+                    },
+                    {
+                        "type": "button",
+                        "style": "primary",
+                        "text": {"type": "plain_text", "text": "Potvrdit"},
+                        "action_id": "select_user_category"
+                    }
+                ]
+            },
+            {"type": "divider"}
+        ])
         client.views_publish(user_id=user_id, view={"type": "home", "blocks": blocks})
     except Exception as e:
         logger.error(f"Error showing edit attendance: {e}")
@@ -218,7 +432,7 @@ def show_events_by_day(client: WebClient, logger: logging.Logger, selected_date:
     """Show events for selected date"""
     try:
         events = load_events_by_date_from_db(selected_date)
-        blocks = build_header_blocks(has_export=config.export_channel != "None")
+        blocks = build_header_blocks()
         
         for event in events:
             blocks.extend(build_event_blocks(event))
@@ -272,62 +486,17 @@ def show_edit_player_category(
     client: WebClient,
     logger: logging.Logger,
     user_id: str,
-    view_user_id: str
+    trigger_id: str
 ) -> None:
-    """Show player category edit view"""
+    """Show player category edit modal"""
     try:
-        blocks = build_back_blocks()
-        blocks.extend(build_user_category_blocks())
-
-        # Add user info
+        # Get user info
         user_info = load_user_from_db(user_id)
         if not user_info:
             raise EditError(f"User with ID {user_id} not found")
 
-        user_name = user_info['name']
-        user_category = user_info.get('category')
-
-        blocks.extend([
-            {
-                "type": "header",
-                "text": {"type": "plain_text", "text": "Úprava kategorie hráče", "emoji": True}
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*{user_name}*"
-                }
-            },
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": f"{':large_blue_circle: ' if user_category == 'Open' else ''}Open"
-                        },
-                        "value": user_id,
-                        "action_id": "user_category_open",
-                        **({"style": "primary"} if user_category == "Open" else {})
-                    },
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": f"{'🔴 ' if user_category == 'Women' else ''}Women"
-                        },
-                        "value": user_id,
-                        "action_id": "user_category_women",
-                        **({"style": "primary"} if user_category == "Women" else {})
-                    }
-                ]
-            },
-            {"type": "divider"}
-        ])
-
-        client.views_publish(user_id=view_user_id, view={"type": "home", "blocks": blocks})
+        modal = build_player_category_modal(user_info)
+        client.views_open(trigger_id=trigger_id, view=modal)
     except Exception as e:
         logger.error(f"Error showing edit player category: {e}")
         raise EditError("Failed to show player category")
