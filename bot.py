@@ -25,6 +25,7 @@ from db import (
     load_participants_from_event,
     load_users_by_category,
     load_users_from_db,
+    load_user_in_event,
     toggle_reminder_active,
     update_reminder,
     update_user_category,
@@ -68,7 +69,7 @@ import sys
 import threading
 import time
 from datetime import datetime, timedelta
-from runtime import load_environment, configure_locale
+from runtime import load_environment, configure_locale, configure_logging
 from access import authorize_admin
 from typing import Dict, Any, Tuple, List, Callable, Optional
 from slack_bolt import App
@@ -80,6 +81,7 @@ import calendar
 import locale
 
 load_environment()
+configure_logging()
 configure_locale()
 config.load_settings()
 
@@ -240,10 +242,7 @@ client = WebClient(token=SLACK_BOT_TOKEN)
 
 # Initialize logger for reminder loop
 logger = logging.getLogger(__name__)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+
 
 def get_user_by_id(
     user_id: str,
@@ -268,11 +267,11 @@ def get_user_by_id(
         
     except SlackApiError as e:
         if logger:
-            logger.error(f"Slack API error getting user: {datetime.now()} - {e}")
+            logger.exception(f"Slack API error getting user: {datetime.now()} - {e}")
         return UNKNOWN_USER
     except Exception as e:
         if logger:
-            logger.error(f"Unexpected error getting user: {datetime.now()} - {e}")
+            logger.exception(f"Unexpected error getting user: {datetime.now()} - {e}")
         return UNKNOWN_USER
 
 def get_today_and_last_day_of_next_month() -> Tuple[datetime, str]:
@@ -386,10 +385,10 @@ def show_category_selection(client: WebClient, user_id: str, logger: logging.Log
             }
         )
     except SlackApiError as e:
-        logger.error(f"Slack API error showing category selection: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error showing category selection: {datetime.now()} - {e}")
 
     except Exception as e:
-        logger.error(f"Error showing category selection: {datetime.now()} - {e}")
+        logger.exception(f"Error showing category selection: {datetime.now()} - {e}")
 
 
 
@@ -412,7 +411,7 @@ def update_home_view(client: WebClient, user_id: str, logger: logging.Logger) ->
         else:
             show_category_selection(client, user_id, logger)
     except (SlackApiError, SlackBotError) as e:
-        logger.error(f"Error updating home view: {e}")
+        logger.exception(f"Error updating home view: {e}")
         raise SlackBotError(f"Failed to update home view: {e}")
 
 @app.action("refresh_home_tab")
@@ -423,7 +422,7 @@ def handle_refresh(ack: Any, body: Dict[str, Any], client: WebClient, logger: lo
         user_id = body["user"]["id"]
         update_home_view(client, user_id, logger)
     except Exception as e:
-        logger.error(f"Error in refresh handler: {datetime.now()} - {e}")
+        logger.exception(f"Error in refresh handler: {datetime.now()} - {e}")
 
 @app.event("app_home_opened")
 def handle_home_opened(event: Dict[str, Any], logger: logging.Logger) -> None:
@@ -433,7 +432,7 @@ def handle_home_opened(event: Dict[str, Any], logger: logging.Logger) -> None:
             user_id = event["user"]
             update_home_view(client, user_id, logger)
     except Exception as e:
-        logger.error(f"Error in home opened handler: {datetime.now()} - {e}")
+        logger.exception(f"Error in home opened handler: {datetime.now()} - {e}")
 
 @app.action("main_menu_overflow")
 def handle_main_menu_overflow(ack: Any, body: Dict[str, Any], client: WebClient, logger: logging.Logger) -> None:
@@ -444,7 +443,7 @@ def handle_main_menu_overflow(ack: Any, body: Dict[str, Any], client: WebClient,
         if action_handler := MENU_ACTIONS.get(selected_option):
             action_handler(ack, body, client, logger)
     except Exception as e:
-        logger.error(f"Error in menu overflow: {datetime.now()} - {e}")
+        logger.exception(f"Error in menu overflow: {datetime.now()} - {e}")
 
 @app.action("events_menu_overflow")
 def handle_events_menu_overflow(ack: Any, body: Dict[str, Any], client: WebClient, logger: logging.Logger) -> None:
@@ -455,7 +454,7 @@ def handle_events_menu_overflow(ack: Any, body: Dict[str, Any], client: WebClien
         if action_handler := MENU_ACTIONS.get(selected_option):
             action_handler(ack, body, client, logger)
     except Exception as e:
-        logger.error(f"Error in events menu overflow: {datetime.now()} - {e}")
+        logger.exception(f"Error in events menu overflow: {datetime.now()} - {e}")
 
 @app.action("go_to_add_event")
 def go_to_add_event(
@@ -472,10 +471,10 @@ def go_to_add_event(
         trigger_id = body["trigger_id"]
         add_event(client, trigger_id, logger)
     except SlackApiError as e:
-        logger.error(f"Slack API error in add event: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error in add event: {datetime.now()} - {e}")
         raise
     except Exception as e:
-        logger.error(f"Error handling add event: {datetime.now()} - {e}")
+        logger.exception(f"Error handling add event: {datetime.now()} - {e}")
         raise
 
 @app.action("all_events")
@@ -494,10 +493,10 @@ def all_events(
             raise ValueError("User ID not found in request body")
         go_to_all_events(ack, body, client, logger)
     except SlackApiError as e:
-        logger.error(f"Slack API error in all events: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error in all events: {datetime.now()} - {e}")
         raise
     except Exception as e:
-        logger.error(f"Error handling all events: {datetime.now()} - {e}")
+        logger.exception(f"Error handling all events: {datetime.now()} - {e}")
         raise
 
 @app.action("go_to_edit_attendance")
@@ -516,10 +515,10 @@ def go_to_edit_attendance(
             raise ValueError("User ID not found in request body")
         show_edit_attendance(client, user_id, logger)
     except SlackApiError as e:
-        logger.error(f"Slack API error in edit attendance: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error in edit attendance: {datetime.now()} - {e}")
         raise
     except Exception as e:
-        logger.error(f"Error handling edit attendance: {datetime.now()} - {e}")
+        logger.exception(f"Error handling edit attendance: {datetime.now()} - {e}")
         raise
 
 @app.action("go_to_reminders")
@@ -538,10 +537,10 @@ def go_to_reminders(
             raise ValueError("User ID not found in request body")
         show_reminders_list(client, user_id, logger)
     except SlackApiError as e:
-        logger.error(f"Slack API error in reminders: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error in reminders: {datetime.now()} - {e}")
         raise
     except Exception as e:
-        logger.error(f"Error handling reminders: {datetime.now()} - {e}")
+        logger.exception(f"Error handling reminders: {datetime.now()} - {e}")
         raise
 
 @app.action("edit_overflow")
@@ -570,10 +569,10 @@ def handle_edit_overflow(
             logger.error(f"Unknown overflow action: {selected_option}")
             
     except SlackApiError as e:
-        logger.error(f"Slack API error in overflow: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error in overflow: {datetime.now()} - {e}")
         raise
     except Exception as e:
-        logger.error(f"Error handling overflow: {datetime.now()} - {e}")
+        logger.exception(f"Error handling overflow: {datetime.now()} - {e}")
         raise
 
 @app.action("go_to_all_events")
@@ -604,13 +603,13 @@ def go_to_all_events(
         show_events(client, user_id, logger, page)
         
     except SlackApiError as e:
-        logger.error(f"Slack API error in events view: {datetime.now()} - {e.response['error']}")
+        logger.exception(f"Slack API error in events view: {datetime.now()} - {e.response['error']}")
         raise
     except ValueError as e:
-        logger.error(f"Invalid input: {datetime.now()} - {str(e)}")
+        logger.exception(f"Invalid input: {datetime.now()} - {str(e)}")
         raise
     except Exception as e:
-        logger.error(f"Unexpected error in events view: {datetime.now()} - {str(e)}")
+        logger.exception(f"Unexpected error in events view: {datetime.now()} - {str(e)}")
         raise
 
 @app.action(re.compile(r"overflow_menu_(\d+)"))
@@ -640,10 +639,10 @@ def handle_overflow_menu(
             logger.error(f"Unknown overflow action: {action}")
             
     except SlackApiError as e:
-        logger.error(f"Slack API error in overflow menu: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error in overflow menu: {datetime.now()} - {e}")
         raise
     except Exception as e:
-        logger.error(f"Error handling overflow menu: {datetime.now()} - {e}")
+        logger.exception(f"Error handling overflow menu: {datetime.now()} - {e}")
         raise
 
 def parse_attendance_value(value: str) -> Tuple[int, str]:
@@ -676,11 +675,11 @@ def handle_attendance_action(
         show_edit_attendance_players(client, logger, event_id, view_id, user_id)
         
     except ValueError as e:
-        logger.error(f"Invalid action value format: {datetime.now()} - {e}")
+        logger.exception(f"Invalid action value format: {datetime.now()} - {e}")
     except SlackApiError as e:
-        logger.error(f"Slack API error: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error: {datetime.now()} - {e}")
     except Exception as e:
-        logger.error(f"Error handling {status.lower()} action: {datetime.now()} - {e}")
+        logger.exception(f"Error handling {status.lower()} action: {datetime.now()} - {e}")
 
 @app.action("event_attendance_coming")
 def event_coming_action(ack: Any, body: Dict[str, Any], logger: logging.Logger) -> None:
@@ -717,7 +716,7 @@ def go_to_attendance_action(
             raise ValueError("User ID not found in request body")
         show_attendance(client, user_id, logger)
     except Exception as e:
-        logger.error(f"Error in attendance action: {datetime.now()} - {e}")
+        logger.exception(f"Error in attendance action: {datetime.now()} - {e}")
         raise
 
 def go_to_attendance_page(
@@ -745,13 +744,31 @@ def go_to_attendance_page(
             raise ValueError("Page number cannot be negative")
         show_attendance(client, user_id, logger, page, filter)
     except Exception as e:
-        logger.error(f"Error in attendance page: {datetime.now()} - {e}")
+        logger.exception(f"Error in attendance page: {datetime.now()} - {e}")
         raise
 
 def parse_participation_value(value: str) -> Tuple[int, int, str]:
     """Parse event_id, page and filter from action value."""
     parts = value.split('_')
     return int(parts[1]), int(parts[2]), parts[3]
+
+
+def attendance_note(body, event_id, user_id):
+    """Block actions carry full state at the top level; accept older view payloads too."""
+    for state in (body.get('state'), body.get('view', {}).get('state')):
+        field = (state or {}).get('values', {}).get(f'reason_{event_id}', {}).get(f'reason_input_{event_id}')
+        if field is not None and 'value' in field:
+            return field['value']  # Explicit null means the user cleared the input.
+    # Missing state must neither abort the action nor erase an existing note.
+    participant = load_user_in_event(event_id, user_id)
+    return participant.get('note') if participant else None
+
+
+def notify_attendance_error(user_id, text, logger):
+    try:
+        client.chat_postMessage(channel=user_id, text=text)
+    except Exception:
+        logger.exception('Failed to notify user %s about attendance error', user_id)
 
 def handle_participation_action(
     ack: Any,
@@ -768,28 +785,31 @@ def handle_participation_action(
         logger: Logger instance
         status: Attendance status to set
     """
+    ack()
+    user_id = body['user']['id']
+    saved = False
+    event_id = None
     try:
-        ack()
-        action_value = body["actions"][0]["value"]
-        event_id, page, filter = parse_participation_value(action_value)
-        user_id = body["user"]["id"]
-        
-        note = body['view']['state']['values'][f'reason_{event_id}'][f'reason_input_{event_id}']['value']
+        event_id, page, filter = parse_participation_value(body['actions'][0]['value'])
+        note = attendance_note(body, event_id, user_id)
         event = load_event_from_db(event_id)
-        
-        if datetime.now() > event["lock_time"]:
-            client.chat_postMessage(channel=user_id, text=LOCKED_MESSAGE)
+        if not event:
+            raise ValueError('Event no longer exists')
+        if datetime.now() >= event['lock_time']:
+            notify_attendance_error(user_id, LOCKED_MESSAGE, logger)
         else:
-            insert_participation(event_id, user_id, status, note, enforce_lock=True)
-            
-        go_to_attendance_page(ack, body, logger, page, filter)
-        
-    except SlackApiError as e:
-        logger.error(f"Slack API error in {status} action: {datetime.now()} - {e}")
-        raise
-    except Exception as e:
-        logger.error(f"Error handling {status} action: {datetime.now()} - {e}")
-        raise
+            insert_participation(event_id, user_id, status, note, logger, enforce_lock=True)
+            saved = True
+            logger.info('Attendance saved user=%s event=%s status=%s', user_id, event_id, status)
+        # Refresh directly: navigation handlers acknowledge requests themselves.
+        show_attendance(client, user_id, logger, page, filter)
+        logger.info('Attendance view refreshed user=%s event=%s', user_id, event_id)
+    except Exception:
+        logger.exception('Attendance action failed user=%s event=%s status=%s saved=%s',
+                         user_id, event_id, status, saved)
+        message = ('Docházka je uložená, ale pohled se nepodařilo obnovit. Zkus obnovit záložku Home.'
+                   if saved else 'Docházku se nepodařilo uložit. Zkus to prosím znovu.')
+        notify_attendance_error(user_id, message, logger)
 
 @app.action("coming")
 def coming_action(ack: Any, body: Dict[str, Any], logger: logging.Logger) -> None:
@@ -874,10 +894,10 @@ def handle_open_filter(
             view=modal
         )
     except SlackApiError as e:
-        logger.error(f"Slack API error opening filter modal: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error opening filter modal: {datetime.now()} - {e}")
         raise
     except Exception as e:
-        logger.error(f"Error opening filter modal: {datetime.now()} - {e}")
+        logger.exception(f"Error opening filter modal: {datetime.now()} - {e}")
         raise
 
 @app.view("filter_events")
@@ -915,13 +935,13 @@ def handle_filter_events(
         show_attendance(client, user_id, logger, DEFAULT_PAGE, selection)
 
     except SlackApiError as e:
-        logger.error(f"Slack API error in filter events: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error in filter events: {datetime.now()} - {e}")
         raise
     except ValueError as e:
-        logger.error(f"Invalid input: {datetime.now()} - {e}")
+        logger.exception(f"Invalid input: {datetime.now()} - {e}")
         raise
     except Exception as e:
-        logger.error(f"Unexpected error in filter events: {datetime.now()} - {e}")
+        logger.exception(f"Unexpected error in filter events: {datetime.now()} - {e}")
         raise
 
 def parse_page_value(value: str) -> Tuple[int, str]:
@@ -958,13 +978,13 @@ def handle_page_action(
         show_attendance(client, user_id, logger, page, filter)
         
     except SlackApiError as e:
-        logger.error(f"Slack API error in {page_type} page: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error in {page_type} page: {datetime.now()} - {e}")
         raise
     except ValueError as e:
-        logger.error(f"Invalid input for {page_type} page: {datetime.now()} - {e}")
+        logger.exception(f"Invalid input for {page_type} page: {datetime.now()} - {e}")
         raise
     except Exception as e:
-        logger.error(f"Error handling {page_type} page: {datetime.now()} - {e}")
+        logger.exception(f"Error handling {page_type} page: {datetime.now()} - {e}")
         raise
 
 @app.action("next_attendance_page")
@@ -1013,13 +1033,13 @@ def handle_edit_page_action(
         show_events(client, user_id, logger, page)
         
     except ValueError as e:
-        logger.error(f"Invalid {page_type} page value: {datetime.now()} - {e}")
+        logger.exception(f"Invalid {page_type} page value: {datetime.now()} - {e}")
         raise
     except SlackApiError as e:
-        logger.error(f"Slack API error in {page_type} page: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error in {page_type} page: {datetime.now()} - {e}")
         raise
     except Exception as e:
-        logger.error(f"Error handling {page_type} page: {datetime.now()} - {e}")
+        logger.exception(f"Error handling {page_type} page: {datetime.now()} - {e}")
         raise
 
 @app.action("next_edit_page")
@@ -1083,10 +1103,10 @@ def handle_save_settings(
         save_settings_to_config(settings)
 
     except SlackApiError as e:
-        logger.error(f"Slack API error in settings: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error in settings: {datetime.now()} - {e}")
         raise
     except Exception as e:
-        logger.error(f"Error handling save settings: {datetime.now()} - {e}")
+        logger.exception(f"Error handling save settings: {datetime.now()} - {e}")
         raise
 
 def validate_event_fields(values: Dict[str, Any]) -> Dict[str, Any]:
@@ -1136,10 +1156,10 @@ def handle_submit_event(
         add_event_to_db(**event_data)
         
     except SlackApiError as e:
-        logger.error(f"Slack API error in event submission: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error in event submission: {datetime.now()} - {e}")
         raise
     except Exception as e:
-        logger.error(f"Error handling event submission: {datetime.now()} - {e}")
+        logger.exception(f"Error handling event submission: {datetime.now()} - {e}")
         raise
 
 def parse_delete_action(value: str) -> Tuple[int, int]:
@@ -1185,13 +1205,13 @@ def delete_event_action(
         go_to_all_events(ack, body, client, logger, page)
         
     except ValueError as e:
-        logger.error(f"Invalid delete action value: {datetime.now()} - {e}")
+        logger.exception(f"Invalid delete action value: {datetime.now()} - {e}")
         raise
     except SlackApiError as e:
-        logger.error(f"Slack API error in delete event: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error in delete event: {datetime.now()} - {e}")
         raise
     except Exception as e:
-        logger.error(f"Error deleting event: {datetime.now()} - {e}")
+        logger.exception(f"Error deleting event: {datetime.now()} - {e}")
         client.chat_postMessage(
             channel=user_id,
             text=MESSAGES["DELETE_ERROR_MESSAGE"]
@@ -1229,13 +1249,13 @@ def handle_edit_event_action(
         open_edit_modal(client, body['trigger_id'], event_id, event)
         
     except ValueError as e:
-        logger.error(f"Validation error: {datetime.now()} - {e}")
+        logger.exception(f"Validation error: {datetime.now()} - {e}")
         raise
     except SlackApiError as e:
-        logger.error(f"Slack API error: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error: {datetime.now()} - {e}")
         raise
     except Exception as e:
-        logger.error(f"Error handling edit event: {datetime.now()} - {e}")
+        logger.exception(f"Error handling edit event: {datetime.now()} - {e}")
         raise
 
 @app.view(EDIT_EVENT_PATTERN)
@@ -1259,13 +1279,13 @@ def handle_edit_submission(
         handle_edit_event_submission(client, body, logger)
         
     except SlackApiError as e:
-        logger.error(f"Slack API error: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error: {datetime.now()} - {e}")
         client.chat_postMessage(
             channel=body["user"]["id"],
             text=ERROR_MESSAGES["EDIT_ERROR"]
         )
     except Exception as e:
-        logger.error(f"Error handling submission: {datetime.now()} - {e}")
+        logger.exception(f"Error handling submission: {datetime.now()} - {e}")
         client.chat_postMessage(
             channel=body["user"]["id"],
             text=ERROR_MESSAGES["EDIT_ERROR"]
@@ -1298,10 +1318,10 @@ def handle_duplicate_action(
         open_duplicate_modal(client, body['trigger_id'], event_id)
         
     except SlackApiError as e:
-        logger.error(f"Slack API error: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error: {datetime.now()} - {e}")
         raise
     except Exception as e:
-        logger.error(f"Error handling duplicate action: {datetime.now()} - {e}")
+        logger.exception(f"Error handling duplicate action: {datetime.now()} - {e}")
         raise
 
 @app.view(DUPLICATE_EVENT_PATTERN)
@@ -1338,10 +1358,10 @@ def handle_duplicate_submission(
         handle_duplicate_event_submission(client, body, logger)
         
     except SlackApiError as e:
-        logger.error(f"Slack API error: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error: {datetime.now()} - {e}")
         raise
     except Exception as e:
-        logger.error(f"Error handling duplicate submission: {datetime.now()} - {e}")
+        logger.exception(f"Error handling duplicate submission: {datetime.now()} - {e}")
         raise
 
 def validate_export_dates(start_date: str, end_date: str) -> bool:
@@ -1385,13 +1405,13 @@ def handle_export_dates_submission(
         export_data_to_csv(start_date, end_date, user_id, client, logger)
 
     except SlackApiError as e:
-        logger.error(f"Slack API error in export: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error in export: {datetime.now()} - {e}")
         client.chat_postMessage(
             channel=user_id,
             text=ERROR_MESSAGES["EXPORT_ERROR"]
         )
     except Exception as e:
-        logger.error(f"Error processing export dates: {datetime.now()} - {e}")
+        logger.exception(f"Error processing export dates: {datetime.now()} - {e}")
         client.chat_postMessage(
             channel=user_id,
             text=ERROR_MESSAGES["EXPORT_ERROR"]
@@ -1427,13 +1447,13 @@ def handle_date_selection(
         show_events_by_day(client, logger, selected_date, user_id)
         
     except ValueError as e:
-        logger.error(f"Validation error: {datetime.now()} - {e}")
+        logger.exception(f"Validation error: {datetime.now()} - {e}")
         client.chat_postMessage(channel=user_id, text=str(e))
     except SlackApiError as e:
-        logger.error(f"Slack API error: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error: {datetime.now()} - {e}")
         client.chat_postMessage(channel=user_id, text=ERROR_MESSAGES["GENERAL_ERROR2"])
     except Exception as e:
-        logger.error(f"Error handling date selection: {datetime.now()} - {e}")
+        logger.exception(f"Error handling date selection: {datetime.now()} - {e}")
         client.chat_postMessage(channel=user_id, text=ERROR_MESSAGES["GENERAL_ERROR2"])
 
 @app.action(SELECT_EVENT_PATTERN)
@@ -1465,11 +1485,11 @@ def handle_select_event(
         show_edit_attendance_for_event(client, logger, event_id, trigger_id)
         
     except ValueError as e:
-        logger.error(f"Validation error: {datetime.now()} - {e}")
+        logger.exception(f"Validation error: {datetime.now()} - {e}")
     except SlackApiError as e:
-        logger.error(f"Slack API error: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error: {datetime.now()} - {e}")
     except Exception as e:
-        logger.error(f"Error handling select event: {datetime.now()} - {e}")
+        logger.exception(f"Error handling select event: {datetime.now()} - {e}")
 
 def parse_event_id(action_id: str) -> str:
     """Extract event ID from action ID."""
@@ -1518,13 +1538,13 @@ def select_participant_in_event(
         )
         
     except ValueError as e:
-        logger.error(f"Validation error: {datetime.now()} - {e}")
+        logger.exception(f"Validation error: {datetime.now()} - {e}")
         client.chat_postMessage(channel=view_user_id, text=str(e))
     except SlackApiError as e:
-        logger.error(f"Slack API error: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error: {datetime.now()} - {e}")
         client.chat_postMessage(channel=view_user_id, text=ERROR_MESSAGES["SELECTION_ERROR"])
     except Exception as e:
-        logger.error(f"Error selecting participant: {datetime.now()} - {e}")
+        logger.exception(f"Error selecting participant: {datetime.now()} - {e}")
         client.chat_postMessage(channel=view_user_id, text=ERROR_MESSAGES["SELECTION_ERROR"])
 
 @app.options("user_selection")
@@ -1571,10 +1591,10 @@ def handle_user_selection_options(
         ack(options=options)
         
     except SlackApiError as e:
-        logger.error(f"Slack API error in user search: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error in user search: {datetime.now()} - {e}")
         ack(options=[])
     except Exception as e:
-        logger.error(f"Error searching users: {datetime.now()} - {e}")
+        logger.exception(f"Error searching users: {datetime.now()} - {e}")
         ack(options=[])
 
 @app.options("user_select")
@@ -1621,10 +1641,10 @@ def handle_user_select_options(
         ack(options=options)
         
     except SlackApiError as e:
-        logger.error(f"Slack API error in user search: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error in user search: {datetime.now()} - {e}")
         ack(options=[])
     except Exception as e:
-        logger.error(f"Error searching users: {datetime.now()} - {e}")
+        logger.exception(f"Error searching users: {datetime.now()} - {e}")
         ack(options=[])
 
 @app.action("user_selection")
@@ -1673,7 +1693,7 @@ def handle_user_select_in_modal(
         )
         
     except Exception as e:
-        logger.error(f"Error handling user select in modal: {datetime.now()} - {e}")
+        logger.exception(f"Error handling user select in modal: {datetime.now()} - {e}")
 
 def get_form_values(values: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
     """Extract and validate form values."""
@@ -1721,13 +1741,13 @@ def handle_attendance_submit(
         show_attendance(client, user_id, logger)
 
     except ValueError as e:
-        logger.error(f"Validation error: {datetime.now()} - {e}")
+        logger.exception(f"Validation error: {datetime.now()} - {e}")
         client.chat_postMessage(channel=user_id, text=str(e))
     except SlackApiError as e:
-        logger.error(f"Slack API error: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error: {datetime.now()} - {e}")
         client.chat_postMessage(channel=user_id, text=ERROR_MESSAGES["DB_ERROR"])
     except Exception as e:
-        logger.error(f"Error in mass input: {datetime.now()} - {e}")
+        logger.exception(f"Error in mass input: {datetime.now()} - {e}")
         client.chat_postMessage(channel=user_id, text=ERROR_MESSAGES["DB_ERROR"])
 
 @app.action(re.compile(r"history_(next|prev)_\d+"))
@@ -1747,7 +1767,7 @@ def handle_history_navigation(
         update_history_view(client, view_id, event_id, new_page, logger)
         
     except Exception as e:
-        logger.error(f"Error handling history navigation: {datetime.now()} - {e}")
+        logger.exception(f"Error handling history navigation: {datetime.now()} - {e}")
         raise
 
 @app.action(re.compile(r"participants_(next|prev)_\d+"))
@@ -1783,7 +1803,7 @@ def handle_participants_navigation(
             }
         )
     except Exception as e:
-        logger.error(f"Error handling participants navigation: {datetime.now()} - {e}")
+        logger.exception(f"Error handling participants navigation: {datetime.now()} - {e}")
         raise
 
 @app.action(re.compile(r"empty_(next|prev)_\d+"))
@@ -1842,7 +1862,7 @@ def handle_empty_navigation(
             }
         )
     except Exception as e:
-        logger.error(f"Error handling empty navigation: {datetime.now()} - {e}")
+        logger.exception(f"Error handling empty navigation: {datetime.now()} - {e}")
         raise
 
 @app.view("share_event")
@@ -1872,10 +1892,10 @@ def handle_share_event_submission(
         post_event_to_channel(client, user_id, event_id, channel_id, text_input, logger)
         
     except SlackApiError as e:
-        logger.error(f"Slack API error in event sharing: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error in event sharing: {datetime.now()} - {e}")
         client.chat_postMessage(channel=user_id, text=ERROR_MESSAGES["SHARE_ERROR"])
     except Exception as e:
-        logger.error(f"Error sharing event: {datetime.now()} - {e}")
+        logger.exception(f"Error sharing event: {datetime.now()} - {e}")
         client.chat_postMessage(channel=user_id, text=ERROR_MESSAGES["SHARE_ERROR"])
 
 def post_event_to_channel(
@@ -1935,10 +1955,10 @@ def post_event_to_channel(
             )
         
     except SlackApiError as e:
-        logger.error(f"Slack API error in event sharing: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error in event sharing: {datetime.now()} - {e}")
         raise
     except Exception as e:
-        logger.error(f"Error sharing event: {datetime.now()} - {e}")
+        logger.exception(f"Error sharing event: {datetime.now()} - {e}")
         raise
 
 @app.action("attendance_modal")
@@ -1963,10 +1983,10 @@ def handle_attendance_modal(
         open_chat_attendance_modal(body, client, logger, event_id)
         
     except SlackApiError as e:
-        logger.error(f"Slack API error in attendance modal: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error in attendance modal: {datetime.now()} - {e}")
         raise
     except Exception as e:
-        logger.error(f"Error opening attendance modal: {datetime.now()} - {e}")
+        logger.exception(f"Error opening attendance modal: {datetime.now()} - {e}")
         raise
 
 @app.view("chat_attendance_input")
@@ -1997,10 +2017,10 @@ def handle_chat_attendance_submission(
         #show_attendance(client, user_id, logger)
         
     except SlackApiError as e:
-        logger.error(f"Slack API error in chat attendance: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error in chat attendance: {datetime.now()} - {e}")
         client.chat_postMessage(channel=user_id, text=ERROR_MESSAGES["ATTENDANCE_ERROR"])
     except Exception as e:
-        logger.error(f"Error in chat attendance: {datetime.now()} - {e}")
+        logger.exception(f"Error in chat attendance: {datetime.now()} - {e}")
         client.chat_postMessage(channel=user_id, text=ERROR_MESSAGES["ATTENDANCE_ERROR"])
 
 @app.action("select_women_category")
@@ -2020,7 +2040,7 @@ def handle_select_women_category(ack: Any, body: Dict[str, Any], client: WebClie
         update_user_category(user_id, "Women", logger)
         show_attendance(client, user_id, logger)
     except Exception as e:
-        logger.error(f"Error handling Women category selection: {datetime.now()} - {e}")
+        logger.exception(f"Error handling Women category selection: {datetime.now()} - {e}")
 
 @app.action("select_open_category")
 def handle_select_open_category(ack: Any, body: Dict[str, Any], client: WebClient, logger: logging.Logger) -> None:
@@ -2039,7 +2059,7 @@ def handle_select_open_category(ack: Any, body: Dict[str, Any], client: WebClien
         update_user_category(user_id, "Open", logger)
         show_attendance(client, user_id, logger)
     except Exception as e:
-        logger.error(f"Error handling Open category selection: {datetime.now()} - {e}")
+        logger.exception(f"Error handling Open category selection: {datetime.now()} - {e}")
 
 @app.action("select_user_category")
 def handle_select_user_category(
@@ -2076,11 +2096,11 @@ def handle_select_user_category(
         )
         
     except ValueError as e:
-        logger.error(f"Validation error: {datetime.now()} - {e}")
+        logger.exception(f"Validation error: {datetime.now()} - {e}")
     except SlackApiError as e:
-        logger.error(f"Slack API error: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error: {datetime.now()} - {e}")
     except Exception as e:
-        logger.error(f"Error handling select user category: {datetime.now()} - {e}")
+        logger.exception(f"Error handling select user category: {datetime.now()} - {e}")
 
 @app.view(re.compile(r"^edit_user_category_.+$"))
 def handle_edit_user_category_submit(
@@ -2111,7 +2131,7 @@ def handle_edit_user_category_submit(
         ack()
         
     except Exception as e:
-        logger.error(f"Error handling edit user category submit: {datetime.now()} - {e}")
+        logger.exception(f"Error handling edit user category submit: {datetime.now()} - {e}")
         ack()
 
 @app.view(re.compile(r"^edit_attendance_\d+$"))
@@ -2172,7 +2192,7 @@ def handle_edit_attendance_submit(
         ack()
         
     except Exception as e:
-        logger.error(f"Error handling edit attendance submit: {datetime.now()} - {e}")
+        logger.exception(f"Error handling edit attendance submit: {datetime.now()} - {e}")
         ack()
 
 # ---------- REMINDER HANDLERS ----------
@@ -2191,7 +2211,7 @@ def handle_open_add_reminder_modal(
         ack()
         open_add_reminder_modal(client, body["trigger_id"], logger)
     except Exception as e:
-        logger.error(f"Error opening add reminder modal: {datetime.now()} - {e}")
+        logger.exception(f"Error opening add reminder modal: {datetime.now()} - {e}")
 
 @app.view("add_reminder_modal")
 def handle_add_reminder_submission(
@@ -2245,7 +2265,7 @@ def handle_add_reminder_submission(
         show_reminders_list(client, user_id, logger)
         
     except Exception as e:
-        logger.error(f"Error handling add reminder submission: {datetime.now()} - {e}")
+        logger.exception(f"Error handling add reminder submission: {datetime.now()} - {e}")
         client.chat_postMessage(
             channel=user_id,
             text="❌ Chyba při vytváření reminderu."
@@ -2284,7 +2304,7 @@ def handle_reminder_overflow(
                         text=f"❌ Nepodařilo se provést reminder {reminder_id}."
                     )
             except Exception as e:
-                logger.error(f"Error executing reminder now: {e}")
+                logger.exception(f"Error executing reminder now: {e}")
                 client.chat_postMessage(
                     channel=user_id,
                     text=f"❌ Chyba při provádění reminderu {reminder_id}."
@@ -2307,7 +2327,7 @@ def handle_reminder_overflow(
                     text=f"{'✅' if new_status else '⏸️'} Reminder {reminder_id} byl {status_text}."
                 )
             except Exception as e:
-                logger.error(f"Error toggling reminder: {e}")
+                logger.exception(f"Error toggling reminder: {e}")
                 client.chat_postMessage(
                     channel=user_id,
                     text=f"❌ Nepodařilo se změnit stav reminderu {reminder_id}."
@@ -2341,7 +2361,7 @@ def handle_reminder_overflow(
             show_reminders_list(client, user_id, logger)
             
     except Exception as e:
-        logger.error(f"Error handling reminder overflow: {datetime.now()} - {e}")
+        logger.exception(f"Error handling reminder overflow: {datetime.now()} - {e}")
 
 @app.view(re.compile(r"edit_reminder_(\d+)"))
 def handle_edit_reminder_submission(
@@ -2400,7 +2420,7 @@ def handle_edit_reminder_submission(
         show_reminders_list(client, user_id, logger)
         
     except Exception as e:
-        logger.error(f"Error handling edit reminder submission: {datetime.now()} - {e}")
+        logger.exception(f"Error handling edit reminder submission: {datetime.now()} - {e}")
         client.chat_postMessage(
             channel=user_id,
             text="❌ Chyba při úpravě reminderu."
@@ -2427,7 +2447,7 @@ def reminder_loop_thread():
             logger.info(f"Processing reminders at {datetime.now()}")
             process_due_reminders(client, logger)
         except Exception as e:
-            logger.error(f"Error in reminder loop: {e}")
+            logger.exception(f"Error in reminder loop: {e}")
         
         # Calculate next 30-minute alignment to prevent drift
         now = datetime.now()
@@ -2487,6 +2507,6 @@ if __name__ == "__main__":
         reminder_stop_event.set()
         sys.exit(0)
     except Exception as e:
-        print(f"❌ Chyba při spuštění aplikace: {e}")
+        logger.exception(f"Chyba při spuštění aplikace: {e}")
         reminder_stop_event.set()
         sys.exit(1)

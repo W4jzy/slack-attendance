@@ -23,7 +23,7 @@ def fetch_user_groups(client: WebClient, logger: logging.Logger) -> List[Dict[st
         user_groups.insert(0, DEFAULT_OPTION)
         return user_groups
     except SlackApiError as e:
-        logger.error(f"Error fetching user groups: {e}")
+        logger.exception(f"Error fetching user groups: {e}")
         return [DEFAULT_OPTION]
 
 def fetch_channels(client: WebClient, logger: logging.Logger) -> List[Dict[str, Any]]:
@@ -53,7 +53,7 @@ def fetch_channels(client: WebClient, logger: logging.Logger) -> List[Dict[str, 
         return channels
 
     except SlackApiError as e:
-        logger.error(f"Error fetching channels: {e}")
+        logger.exception(f"Error fetching channels: {e}")
         return [DEFAULT_OPTION]
 
 def build_settings_blocks(config_values: Dict) -> List[Dict]:
@@ -177,10 +177,10 @@ def show_settings(client: WebClient, trigger_id: str, logger: logging.Logger) ->
         )
 
     except SlackApiError as e:
-        logger.error(f"Slack API error in settings: {e}")
+        logger.exception(f"Slack API error in settings: {e}")
         raise SettingsError(f"Failed to open settings modal: {e}")
     except Exception as e:
-        logger.error(f"Error displaying settings: {e}")
+        logger.exception(f"Error displaying settings: {e}")
         raise SettingsError(f"Unexpected error displaying settings: {e}")
 
 def go_to_settings(body: Dict[str, Any], client: WebClient, logger: logging.Logger) -> None:
@@ -191,4 +191,4 @@ def go_to_settings(body: Dict[str, Any], client: WebClient, logger: logging.Logg
         trigger_id = body["trigger_id"]
         show_settings(client, trigger_id, logger)
     except Exception as e:
-        logger.error(f"Error: {datetime.now()} - {e}")
+        logger.exception(f"Error: {datetime.now()} - {e}")

@@ -15,6 +15,10 @@ Environment=ATTENDANCE_ENV=/var/lib/slack-attendance/.env
 Environment=TZ=Europe/Prague
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=LOG_LEVEL=INFO
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=slack-attendance
 ExecStartPre=/opt/slack-attendance/venv/bin/python @APP_DIR@/manage.py check
 ExecStart=/opt/slack-attendance/venv/bin/python @APP_DIR@/bot.py
 Restart=on-failure

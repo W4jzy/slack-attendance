@@ -10,6 +10,16 @@ systém číslovaných migrací vychází z aktualizované lokální verze `Disc
 
 ## Opravené nálezy
 
+- Kliknutí na docházku očekávalo poznámku výhradně ve `view.state.values`:
+  podporuje také hlavní `state.values` z block_actions a chybějící pole zachová
+  uloženou poznámku. Akce se potvrzuje jednou, po zápisu se přímo obnoví stejná
+  stránka/filtr. Selhání vykreslení se propaguje, takže uživatel rozliší chybu
+  uložení a chybu zobrazení. Výpadek načtení administrátorské skupiny dovolí
+  vykreslit běžnou docházku bez administrátorských ovládacích prvků.
+- Zachycené výjimky se logují s tracebackem; doplněno logování neošetřených
+  výjimek a vláken. Služba směruje výstup do journalu; pro starou instalaci
+  `/opt/slack_bot` je připraven `deploy/journal.conf` a postup v README.
+
 - Chybějící závislost na MySQL konektoru a nereprodukovatelná instalace:
   kompletní připnuté `requirements.txt`, samostatné prostředí a systemd.
 - Neplatné `db.sql` (čárka za posledním sloupcem `users`) a chybějící sloupce

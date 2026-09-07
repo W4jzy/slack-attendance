@@ -80,13 +80,13 @@ def execute_query(query: str, params: Optional[tuple] = None,
         if connection:
             connection.rollback()
         if logger:
-            logger.error(f"Database query error: {err}")
+            logger.exception(f"Database query error: {err}")
         raise DatabaseError(f"Query execution failed: {err}")
     except Exception as e:
         if connection:
             connection.rollback()
         if logger:
-            logger.error(f"Unexpected database error: {e}")
+            logger.exception(f"Unexpected database error: {e}")
         raise DatabaseError(f"Unexpected error during query execution: {e}")
     finally:
         if cursor:

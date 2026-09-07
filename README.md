@@ -116,6 +116,51 @@ protože by mohly odesílat stejné připomínky.
 
 ## Provoz a obnova
 
+Logy aplikace i tracebacky zachycených chyb zapisuje Python na standardní chybový
+výstup. Dodaná systemd služba explicitně směruje stdout i stderr do journalu.
+`LOG_LEVEL=INFO` zahrnuje start, zápis docházky a obnovení pohledu; chyby obsahují
+kontext uživatele/události a traceback. Text poznámky se v těchto provozních záznamech neloguje.
+
+Pro starou službu s `WorkingDirectory=/opt/slack_bot` a výstupem do
+`/var/log/slack-bot*.log` lze zachovat její cestu, Python i účet a přidat override.
+Nahraď `NAZEV.service` skutečným názvem jednotky:
+
+```bash
+sudo systemctl edit NAZEV.service
+```
+
+Vlož obsah [deploy/journal.conf](deploy/journal.conf):
+
+```ini
+[Service]
+Environment=PYTHONUNBUFFERED=1
+Environment=LOG_LEVEL=INFO
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=slack-attendance
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart NAZEV.service
+sudo journalctl -u NAZEV.service -n 100 --no-pager
+sudo journalctl -u NAZEV.service -f
+```
+
+Override nahradí původní směrování `append:`; nové výstupy už nepřibývají do
+původních log souborů. Jejich starý obsah zůstane zachovaný. Zobrazení tracebacků
+vyžaduje také nasazení aktualizovaného Python kódu. Uchování journalu přes restart
+serveru řídí systémové nastavení journald. Viz
+[systemd.exec](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#StandardOutput=).
+
+Po kliknutí na docházku lze rozlišit `Attendance saved` a
+`Attendance view refreshed`; chybový záznam obsahuje `saved=True/False`.
+Čtení poznámky podporuje hlavní `state` i starší `view.state`, chybějící pole
+zachová uloženou poznámku. Strukturu akcí popisuje
+[Slack block_actions](https://docs.slack.dev/reference/interaction-payloads/block_actions-payload/).
+
+Pro instalaci spravovanou novými deploy skripty použij přímo:
+
 ```bash
 sudo systemctl status slack-attendance
 sudo journalctl -u slack-attendance -n 100 --no-pager

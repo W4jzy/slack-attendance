@@ -322,7 +322,7 @@ def add_event(client: WebClient, trigger_id: str, logger: logging.Logger) -> Non
             }
         )
     except Exception as e:
-        logger.error(f"Error showing event form: {e}")
+        logger.exception(f"Error showing event form: {e}")
         raise EventError("Failed to show event creation form")
 
 def show_events(client: WebClient, user_id: str, logger: logging.Logger, page: int = 0) -> None:
@@ -406,7 +406,7 @@ def show_events(client: WebClient, user_id: str, logger: logging.Logger, page: i
         )
 
     except Exception as e:
-        logger.error(f"Error displaying events: {e}")
+        logger.exception(f"Error displaying events: {e}")
         raise EventError("Failed to display events")
 
 def open_duplicate_modal(client: WebClient, trigger_id: str, event_id: str) -> None:
@@ -616,10 +616,10 @@ def show_event_details(
             view=modal
         )
     except SlackApiError as e:
-        logger.error(f"Slack API error showing event details: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error showing event details: {datetime.now()} - {e}")
         raise
     except Exception as e:
-        logger.error(f"Error showing event details: {datetime.now()} - {e}")
+        logger.exception(f"Error showing event details: {datetime.now()} - {e}")
         raise
 
 def validate_event_data(values: Dict[str, Any]) -> Dict[str, Any]:
@@ -680,13 +680,13 @@ def handle_edit_event_submission(
         show_events(client, user_id, logger)
         
     except ValueError as e:
-        logger.error(f"Validation error: {datetime.now()} - {e}")
+        logger.exception(f"Validation error: {datetime.now()} - {e}")
         client.chat_postMessage(channel=user_id, text=str(e))
     except SlackApiError as e:
-        logger.error(f"Slack API error: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error: {datetime.now()} - {e}")
         client.chat_postMessage(channel=user_id, text=MESSAGES["ERROR"])
     except Exception as e:
-        logger.error(f"Error editing event: {datetime.now()} - {e}")
+        logger.exception(f"Error editing event: {datetime.now()} - {e}")
         client.chat_postMessage(channel=user_id, text=MESSAGES["ERROR"])
 
 def validate_duplicate_count(count: int) -> bool:
@@ -755,16 +755,16 @@ def handle_duplicate_event_submission(
         show_events(client, body['user']['id'], logger)
         
     except ValueError as e:
-        logger.error(f"Validation error: {datetime.now()} - {e}")
+        logger.exception(f"Validation error: {datetime.now()} - {e}")
         client.chat_postMessage(
             channel=body['user']['id'],
             text=str(e)
         )
     except SlackApiError as e:
-        logger.error(f"Slack API error: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error: {datetime.now()} - {e}")
         raise
     except Exception as e:
-        logger.error(f"Error duplicating event: {datetime.now()} - {e}")
+        logger.exception(f"Error duplicating event: {datetime.now()} - {e}")
         client.chat_postMessage(
             channel=body['user']['id'],
             text=MESSAGES_DUPLICATION["ERROR"]

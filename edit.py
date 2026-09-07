@@ -124,7 +124,7 @@ def show_edit_attendance_for_event(
         modal = build_edit_attendance_modal(event)
         client.views_open(trigger_id=trigger_id, view=modal)
     except Exception as e:
-        logger.error(f"Error showing edit attendance modal: {e}")
+        logger.exception(f"Error showing edit attendance modal: {e}")
         raise EditError("Failed to show attendance edit modal")
 
 def update_edit_attendance_modal(
@@ -159,7 +159,7 @@ def update_edit_attendance_modal(
         client.views_update(view_id=view_id, view=modal)
         
     except Exception as e:
-        logger.error(f"Error updating edit attendance modal: {e}")
+        logger.exception(f"Error updating edit attendance modal: {e}")
         raise EditError("Failed to update attendance edit modal")
 
 def build_player_category_modal(user_info: Dict[str, Any]) -> Dict[str, Any]:
@@ -424,7 +424,7 @@ def show_edit_attendance(client: WebClient, user_id: str, logger: logging.Logger
         ])
         client.views_publish(user_id=user_id, view={"type": "home", "blocks": blocks})
     except Exception as e:
-        logger.error(f"Error showing edit attendance: {e}")
+        logger.exception(f"Error showing edit attendance: {e}")
         raise EditError("Failed to show edit attendance view")
 
 def show_events_by_day(client: WebClient, logger: logging.Logger, selected_date: datetime, user_id: str) -> None:
@@ -438,7 +438,7 @@ def show_events_by_day(client: WebClient, logger: logging.Logger, selected_date:
 
         client.views_publish(user_id=user_id, view={"type": "home", "blocks": blocks})
     except Exception as e:
-        logger.error(f"Error showing events by day: {e}")
+        logger.exception(f"Error showing events by day: {e}")
         raise EditError("Failed to show events")
 
 def show_edit_attendance_players(
@@ -478,7 +478,7 @@ def show_edit_attendance_players(
 
         client.views_publish(user_id=view_user_id, view={"type": "home", "blocks": blocks})
     except Exception as e:
-        logger.error(f"Error showing edit attendance players: {e}")
+        logger.exception(f"Error showing edit attendance players: {e}")
         raise EditError("Failed to show attendance players")
 
 def show_edit_player_category(
@@ -497,5 +497,5 @@ def show_edit_player_category(
         modal = build_player_category_modal(user_info)
         client.views_open(trigger_id=trigger_id, view=modal)
     except Exception as e:
-        logger.error(f"Error showing edit player category: {e}")
+        logger.exception(f"Error showing edit player category: {e}")
         raise EditError("Failed to show player category")

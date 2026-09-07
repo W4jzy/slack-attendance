@@ -39,7 +39,7 @@ def export_data_to_csv(start_date: str, end_date: str, user_id: str, client: Web
             datetime.strptime(start_date, '%Y-%m-%d')
             datetime.strptime(end_date, '%Y-%m-%d')
         except ValueError as e:
-            logger.error(f"Invalid date format: {e}")
+            logger.exception(f"Invalid date format: {e}")
             raise ExportError(f"Neplatný formát data: {e}")
 
         # Load data from database
@@ -74,19 +74,19 @@ def export_data_to_csv(start_date: str, end_date: str, user_id: str, client: Web
         logger.info(f"User {user_id} exported {len(data)} records from {start_date} to {end_date}")
 
     except SlackApiError as e:
-        logger.error(f"Slack API error in export: {e}")
+        logger.exception(f"Slack API error in export: {e}")
         client.chat_postMessage(
             channel=user_id,
             text="❌ Chyba při komunikaci se Slack API. Zkuste to prosím později."
         )
     except ExportError as e:
-        logger.error(f"Export error: {e}")
+        logger.exception(f"Export error: {e}")
         client.chat_postMessage(
             channel=user_id,
             text="❌ Chyba při exportu docházky."
         )
     except Exception as e:
-        logger.error(f"Unexpected error during export: {e}")
+        logger.exception(f"Unexpected error during export: {e}")
         client.chat_postMessage(
             channel=user_id,
             text="❌ Neočekávaná chyba při exportu docházky."
@@ -157,8 +157,8 @@ def export_participants(
             view=modal
         )
     except SlackApiError as e:
-        logger.error(f"Slack API error: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error: {datetime.now()} - {e}")
         raise
     except Exception as e:
-        logger.error(f"Error showing export modal: {datetime.now()} - {e}")
+        logger.exception(f"Error showing export modal: {datetime.now()} - {e}")
         raise

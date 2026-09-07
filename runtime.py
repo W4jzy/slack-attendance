@@ -2,9 +2,33 @@
 import locale
 import logging
 import os
+import sys
+import threading
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+
+def configure_logging():
+    """Send application and uncaught exception logs to the service output."""
+    level = getattr(logging, os.getenv('LOG_LEVEL', 'INFO').upper(), logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format='%(asctime)s %(levelname)s %(name)s: %(message)s',
+        stream=sys.stderr,
+    )
+    def unhandled(exc_type, exc_value, traceback):
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc_value, traceback)
+            return
+        logging.getLogger('runtime').critical(
+            'Unhandled exception', exc_info=(exc_type, exc_value, traceback))
+    def thread_error(args):
+        logging.getLogger('runtime').critical(
+            'Unhandled exception in thread %s', args.thread.name if args.thread else 'unknown',
+            exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+    sys.excepthook = unhandled
+    threading.excepthook = thread_error
 
 
 def load_environment():

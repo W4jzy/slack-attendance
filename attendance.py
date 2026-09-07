@@ -438,8 +438,12 @@ def show_attendance(
         user_attendance = load_participants_for_user(user_id)
         
         # Check admin status
-        attendance_admins = client.usergroups_users_list(usergroup=config.admin_group)
-        is_admin = user_id in attendance_admins['users']
+        try:
+            attendance_admins = client.usergroups_users_list(usergroup=config.admin_group)
+            is_admin = user_id in attendance_admins['users']
+        except SlackApiError:
+            logger.exception('Cannot load admin group; rendering ordinary attendance for user=%s', user_id)
+            is_admin = False
 
         # Build and publish view
         blocks = build_attendance_blocks(events, user_attendance, is_admin, page, filter)
@@ -452,18 +456,9 @@ def show_attendance(
             }
         )
 
-    except SlackApiError as e:
-        logger.error(f"Slack API error in attendance: {e}")
-        client.chat_postMessage(
-            channel=user_id,
-            text="❌ Chyba při načítání docházky. Zkuste to prosím později."
-        )
-    except Exception as e:
-        logger.error(f"Error displaying attendance: {e}")
-        client.chat_postMessage(
-            channel=user_id,
-            text="❌ Neočekávaná chyba při zobrazení docházky."
-        )
+    except Exception as exc:
+        logger.exception('Failed to publish attendance view user=%s page=%s filter=%s', user_id, page, filter)
+        raise AttendanceError('Attendance view could not be refreshed') from exc
 
 def show_mass_insert(
     body: Dict[str, Any],
@@ -558,7 +553,7 @@ def show_mass_insert(
             }
         )
     except Exception as e:
-         logger.error(f"Error opening modal: {e}")
+         logger.exception(f"Error opening modal: {e}")
 
 def format_participant_name(participant: Dict[str, Any]) -> str:
     """Format participant name with optional note."""
@@ -682,10 +677,10 @@ def show_participants(
             }
         )
     except SlackApiError as e:
-        logger.error(f"Slack API error showing participants: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error showing participants: {datetime.now()} - {e}")
         raise
     except Exception as e:
-        logger.error(f"Error showing participants: {datetime.now()} - {e}")
+        logger.exception(f"Error showing participants: {datetime.now()} - {e}")
         raise
 
 def format_note(note: str) -> str:
@@ -777,10 +772,10 @@ def show_history(
             view=view
         )
     except SlackApiError as e:
-        logger.error(f"Slack API error showing history: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error showing history: {datetime.now()} - {e}")
         raise
     except Exception as e:
-        logger.error(f"Error showing history: {datetime.now()} - {e}")
+        logger.exception(f"Error showing history: {datetime.now()} - {e}")
         raise
 
 def update_history_view(
@@ -807,7 +802,7 @@ def update_history_view(
             view=view
         )
     except Exception as e:
-        logger.error(f"Error updating history view: {datetime.now()} - {e}")
+        logger.exception(f"Error updating history view: {datetime.now()} - {e}")
         raise
 
 def create_empty_navigation(current_page: int, event_id: str) -> Dict[str, Any]:
@@ -914,10 +909,10 @@ def show_empty(
         )
         
     except SlackApiError as e:
-        logger.error(f"Slack API error showing empty: {datetime.now()} - {e}")
+        logger.exception(f"Slack API error showing empty: {datetime.now()} - {e}")
         raise
     except Exception as e:
-        logger.error(f"Error showing empty: {datetime.now()} - {e}")
+        logger.exception(f"Error showing empty: {datetime.now()} - {e}")
         raise
 
 def share_event(
@@ -998,7 +993,7 @@ def share_event(
             }
         )
     except Exception as e:
-         logger.error(f"Error opening modal: {e}")
+         logger.exception(f"Error opening modal: {e}")
 
 def fetch_channels(client: WebClient, logger: logging.Logger) -> List[Dict[str, Any]]:
     """Fetch channels from Slack"""
@@ -1016,7 +1011,7 @@ def fetch_channels(client: WebClient, logger: logging.Logger) -> List[Dict[str, 
         )
         return channels
     except SlackApiError as e:
-        logger.error(f"Error fetching channels: {e}")
+        logger.exception(f"Error fetching channels: {e}")
 
 def open_chat_attendance_modal(
     body: Dict[str, Any],
@@ -1160,7 +1155,7 @@ def open_chat_attendance_modal(
             view=modal_view
         )
     except Exception as e:
-         logger.error(f"Error opening modal: {e}")
+         logger.exception(f"Error opening modal: {e}")
 
 def show_edit_events_menu(
     client: WebClient,
@@ -1240,4 +1235,4 @@ def show_edit_events_menu(
             view={"type": "home", "blocks": blocks}
         )
     except Exception as e:
-        logger.error(f"Error showing edit events menu: {e}")
+        logger.exception(f"Error showing edit events menu: {e}")

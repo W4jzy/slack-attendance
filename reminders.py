@@ -472,7 +472,7 @@ def build_reminders_list_view(client: WebClient, logger: logging.Logger) -> List
                 blocks.append({"type": "divider"})
     
     except Exception as e:
-        logger.error(f"Error loading reminders: {e}")
+        logger.exception(f"Error loading reminders: {e}")
         blocks.append({
             "type": "section",
             "text": {
@@ -500,7 +500,7 @@ def show_reminders_list(client: WebClient, user_id: str, logger: logging.Logger)
             view={"type": "home", "blocks": blocks}
         )
     except Exception as e:
-        logger.error(f"Error showing reminders list: {e}")
+        logger.exception(f"Error showing reminders list: {e}")
         raise ReminderError("Failed to show reminders list")
 
 
@@ -517,7 +517,7 @@ def open_add_reminder_modal(client: WebClient, trigger_id: str, logger: logging.
         view = build_add_reminder_modal()
         client.views_open(trigger_id=trigger_id, view=view)
     except Exception as e:
-        logger.error(f"Error opening add reminder modal: {e}")
+        logger.exception(f"Error opening add reminder modal: {e}")
         raise ReminderError("Failed to open add reminder modal")
 
 
@@ -539,7 +539,7 @@ def open_edit_reminder_modal(client: WebClient, trigger_id: str, reminder_id: in
         view = build_edit_reminder_modal(reminder)
         client.views_open(trigger_id=trigger_id, view=view)
     except Exception as e:
-        logger.error(f"Error opening edit reminder modal: {e}")
+        logger.exception(f"Error opening edit reminder modal: {e}")
         raise ReminderError("Failed to open edit reminder modal")
 
 
@@ -663,7 +663,7 @@ def process_due_reminders(client: WebClient, logger: logging.Logger) -> None:
                                 )
                                 logger.info(f"Shared event {event['id']} from reminder {reminder_id} to channel {channel_id}")
                             except Exception as e:
-                                logger.error(f"Failed to share event {event['id']} from reminder {reminder_id}: {e}")
+                                logger.exception(f"Failed to share event {event['id']} from reminder {reminder_id}: {e}")
                                 delivery_failed = True
                     else:
                         # No events found - send the custom message
@@ -674,11 +674,11 @@ def process_due_reminders(client: WebClient, logger: logging.Logger) -> None:
                             )
                             logger.info(f"Sent no-events message from reminder {reminder_id} to channel {channel_id}")
                         except Exception as e:
-                            logger.error(f"Failed to send no-events message from reminder {reminder_id}: {e}")
+                            logger.exception(f"Failed to send no-events message from reminder {reminder_id}: {e}")
                             delivery_failed = True
                             
                 except Exception as e:
-                    logger.error(f"Failed to process share_events reminder {reminder_id}: {e}")
+                    logger.exception(f"Failed to process share_events reminder {reminder_id}: {e}")
                     continue
                     
             else:
@@ -690,7 +690,7 @@ def process_due_reminders(client: WebClient, logger: logging.Logger) -> None:
                     )
                     logger.info(f"Sent reminder {reminder_id} to channel {channel_id}")
                 except Exception as e:
-                    logger.error(f"Failed to send reminder {reminder_id}: {e}")
+                    logger.exception(f"Failed to send reminder {reminder_id}: {e}")
                     continue
             
             if delivery_failed:
@@ -712,12 +712,12 @@ def process_due_reminders(client: WebClient, logger: logging.Logger) -> None:
                     update_reminder_next_time(reminder_id, next_time, logger=logger)
                     logger.info(f"Updated reminder {reminder_id} to next time: {next_time}")
                 except Exception as e:
-                    logger.error(f"Failed to update reminder {reminder_id}: {e}")
+                    logger.exception(f"Failed to update reminder {reminder_id}: {e}")
                     # Deactivate on error to prevent infinite loops
                     deactivate_reminder(reminder_id, logger=logger)
     
     except Exception as e:
-        logger.error(f"Error processing due reminders: {e}")
+        logger.exception(f"Error processing due reminders: {e}")
         raise ReminderError("Failed to process due reminders")
 
 
@@ -803,7 +803,7 @@ def execute_reminder_now(client: WebClient, reminder_id: int, logger: logging.Lo
                             )
                             logger.info(f"Manually shared event {event['id']} from reminder {reminder_id} to channel {channel_id}")
                         except Exception as e:
-                            logger.error(f"Failed to share event {event['id']} from reminder {reminder_id}: {e}")
+                            logger.exception(f"Failed to share event {event['id']} from reminder {reminder_id}: {e}")
                 else:
                     # No events found - send the custom message
                     try:
@@ -813,11 +813,11 @@ def execute_reminder_now(client: WebClient, reminder_id: int, logger: logging.Lo
                         )
                         logger.info(f"Sent no-events message from reminder {reminder_id} to channel {channel_id}")
                     except Exception as e:
-                        logger.error(f"Failed to send no-events message from reminder {reminder_id}: {e}")
+                        logger.exception(f"Failed to send no-events message from reminder {reminder_id}: {e}")
                         return False
                         
             except Exception as e:
-                logger.error(f"Failed to process share_events reminder {reminder_id}: {e}")
+                logger.exception(f"Failed to process share_events reminder {reminder_id}: {e}")
                 return False
                 
         else:
@@ -829,11 +829,11 @@ def execute_reminder_now(client: WebClient, reminder_id: int, logger: logging.Lo
                 )
                 logger.info(f"Manually sent reminder {reminder_id} to channel {channel_id}")
             except Exception as e:
-                logger.error(f"Failed to send reminder {reminder_id}: {e}")
+                logger.exception(f"Failed to send reminder {reminder_id}: {e}")
                 return False
         
         return True
         
     except Exception as e:
-        logger.error(f"Error executing reminder {reminder_id} now: {e}")
+        logger.exception(f"Error executing reminder {reminder_id} now: {e}")
         return False
