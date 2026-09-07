@@ -2440,8 +2440,30 @@ def reminder_loop_thread():
         except Exception as e:
             logger.error(f"Error in reminder loop: {e}")
         
-        # Wait 30 minutes (1800 seconds) or until stop event
-        for _ in range(1800):
+        # Calculate next 30-minute alignment to prevent drift
+        now = datetime.now()
+        current_minute = now.minute
+        
+        # Calculate minutes to next :00 or :30
+        if current_minute < 30:
+            target_minute = 30
+        else:
+            target_minute = 0
+            
+        # Create target datetime
+        target = now.replace(second=0, microsecond=0)
+        if target_minute == 0:
+            target = target + timedelta(hours=1)
+            target = target.replace(minute=0)
+        else:
+            target = target.replace(minute=target_minute)
+        
+        # Calculate wait time in seconds
+        wait_seconds = (target - datetime.now()).total_seconds()
+        
+        # Wait until target time or stop event
+        end_time = datetime.now() + timedelta(seconds=wait_seconds)
+        while datetime.now() < end_time:
             if reminder_stop_event.is_set():
                 logger.info("Stopping reminder loop...")
                 return
