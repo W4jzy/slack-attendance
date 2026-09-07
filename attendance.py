@@ -1,9 +1,19 @@
-from typing import List, Dict, Any, Optional, Set, NamedTuple
+from db import (
+    load_event_from_db,
+    load_events_by_type_from_db,
+    load_events_from_db,
+    load_history_from_event,
+    load_participants_for_user,
+    load_participants_from_event,
+    load_user_in_event,
+    load_users_by_category,
+    load_users_from_db,
+)
+from typing import List, Dict, Any, NamedTuple
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from datetime import datetime
 import logging
-from db import *
 import config
 import locale
 from dataclasses import dataclass, field
@@ -148,7 +158,7 @@ def build_attendance_blocks(
                             "type": "plain_text",
                             "text": "Filtr"
                         },
-                        "action_id": f"open_filter",
+                        "action_id": "open_filter",
                         "value": filter
                     }
                 ]
@@ -205,7 +215,7 @@ def build_attendance_blocks(
                             "type": "plain_text",
                             "text": "Filtr"
                         },
-                        "action_id": f"open_filter",
+                        "action_id": "open_filter",
                         "value": filter
                     }
                 ]
@@ -464,7 +474,6 @@ def show_mass_insert(
     Opens a modal for mass attendance input.
     """
     try:
-        user_id = body["user"]["id"]
         blocks = [
             {
                 "type": "header",
@@ -876,7 +885,6 @@ def show_empty(
         missing_boys = []
         missing_girls = []
         for player_id in participant_ids:
-            player_name = users_dict.get(player_id, player_id)
             if player_id in o_active_players:
                 o_active_players.remove(player_id)
             elif player_id in w_active_players:
@@ -922,7 +930,6 @@ def share_event(
     Opens a modal for share event.
     """
     try:
-        user_id = body["user"]["id"]
         channels = fetch_channels(client, logger)
         blocks = [
             {

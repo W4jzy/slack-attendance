@@ -6,10 +6,10 @@ Reminder systém byl rozšířen o možnost automatického sdílení událostí 
 
 ## Změny v databázi
 
-Spusťte SQL skript pro přidání nových sloupců:
+Spusťte číslované migrace (install a deploy je spouštějí automaticky):
 
 ```bash
-mysql -u your_user -p attendance < alter_reminders_table.sql
+python migrate.py migrate
 ```
 
 Přidané sloupce do tabulky `reminders`:
@@ -112,7 +112,7 @@ _Automatický reminder_
 ## Soubory upravené
 
 ### Databáze
-- `alter_reminders_table.sql` - SQL skript pro úpravu tabulky
+- `migrations/003_reminder_event_sharing.sql` - migrace sloupců připomínek
 
 ### Backend (db.py)
 - `add_reminder_to_db()` - Přidány parametry reminder_type, days_ahead

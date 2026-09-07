@@ -1,7 +1,10 @@
 import os
-from configparser import ConfigParser
-from typing import Dict, Optional, Any
+from configparser import ConfigParser, Error as ParserError
+from pathlib import Path
+from typing import Dict, Optional
 import logging
+import stat
+import tempfile
 
 class ConfigError(Exception):
     """Base exception for configuration related errors"""
@@ -18,7 +21,11 @@ config: Dict[str, Optional[str]] = {
     "notcoming_training": "Not Coming",
 }
 
-def load_settings(filename: str = 'config.ini', logger: Optional[logging.Logger] = None) -> None:
+def config_path():
+    return Path(os.getenv('ATTENDANCE_CONFIG', Path(__file__).with_name('config.ini')))
+
+
+def load_settings(filename=None, logger: Optional[logging.Logger] = None) -> None:
     """
     Load settings from configuration file.
     
@@ -29,7 +36,8 @@ def load_settings(filename: str = 'config.ini', logger: Optional[logging.Logger]
     Raises:
         ConfigError: If configuration cannot be loaded
     """
-    parser = ConfigParser()
+    filename = filename or config_path()
+    parser = ConfigParser(interpolation=None)
     try:
         if not os.path.exists(filename):
             error_msg = f'Configuration file {filename} not found'
@@ -37,7 +45,7 @@ def load_settings(filename: str = 'config.ini', logger: Optional[logging.Logger]
                 logger.error(error_msg)
             raise ConfigError(error_msg)
 
-        parser.read(filename)
+        parser.read(filename, encoding='utf-8')
         
         if not parser.has_section('settings'):
             error_msg = 'Missing [settings] section in config file'
@@ -56,7 +64,9 @@ def load_settings(filename: str = 'config.ini', logger: Optional[logging.Logger]
         if logger:
             logger.info("Configuration loaded successfully")
             
-    except ConfigParser.Error as e:
+    except ConfigError:
+        raise
+    except ParserError as e:
         error_msg = f"Configuration parsing error: {e}"
         if logger:
             logger.error(error_msg)
@@ -67,7 +77,7 @@ def load_settings(filename: str = 'config.ini', logger: Optional[logging.Logger]
             logger.error(error_msg)
         raise ConfigError(error_msg)
 
-def save_settings(filename: str = 'config.ini', logger: Optional[logging.Logger] = None) -> None:
+def save_settings(filename=None, logger: Optional[logging.Logger] = None) -> None:
     """
     Save settings to configuration file.
     
@@ -78,10 +88,11 @@ def save_settings(filename: str = 'config.ini', logger: Optional[logging.Logger]
     Raises:
         ConfigError: If configuration cannot be saved
     """
+    filename = filename or config_path()
     try:
-        parser = ConfigParser()
+        parser = ConfigParser(interpolation=None)
         if os.path.exists(filename):
-            parser.read(filename)
+            parser.read(filename, encoding='utf-8')
 
         if not parser.has_section('settings'):
             parser.add_section('settings')
@@ -89,8 +100,19 @@ def save_settings(filename: str = 'config.ini', logger: Optional[logging.Logger]
         for key, value in config.items():
             parser.set('settings', key, str(value) if value is not None else "")
 
-        with open(filename, 'w') as configfile:
-            parser.write(configfile)
+        # Readers must never see a half-written INI file.
+        path = Path(filename)
+        descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix='.config-', suffix='.ini')
+        try:
+            with os.fdopen(descriptor, 'w', encoding='utf-8') as configfile:
+                parser.write(configfile)
+            if path.exists():
+                os.chmod(temporary, stat.S_IMODE(path.stat().st_mode))
+            os.replace(temporary, path)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+        update_global_variables(logger)
             
         if logger:
             logger.info("Configuration saved successfully")

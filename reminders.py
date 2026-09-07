@@ -1,9 +1,16 @@
-from typing import Dict, List, Any, Optional
+from db import (
+    deactivate_reminder,
+    get_all_reminders,
+    get_due_reminders,
+    load_events_by_date_from_db,
+    load_reminder_from_db,
+    update_reminder_next_time,
+)
+from typing import Dict, List, Any
 from slack_sdk import WebClient
-from slack_sdk.errors import SlackApiError
 from datetime import datetime, timedelta
 import logging
-from db import *
+import calendar
 
 # Constants
 REMINDER_MODAL_CONFIG = {
@@ -405,7 +412,6 @@ def build_reminders_list_view(client: WebClient, logger: logging.Logger) -> List
                 # Status indicator
                 is_active = reminder.get('active', 1)
                 status_emoji = "✅" if is_active else "⏸️"
-                status_text = "Aktivní" if is_active else "Neaktivní"
                 toggle_text = "Deaktivovat" if is_active else "Aktivovat"
                 
                 # Get channel name
@@ -564,7 +570,7 @@ def calculate_next_reminder_time(current_time: datetime, repeat_type: str) -> da
         if month > 12:
             month = 1
             year += 1
-        day = min(current_time.day, 28)  # Safe fallback
+        day = min(current_time.day, calendar.monthrange(year, month)[1])
         return current_time.replace(year=year, month=month, day=day)
     
     else:
@@ -592,6 +598,7 @@ def process_due_reminders(client: WebClient, logger: logging.Logger) -> None:
             repeat_type = reminder.get('repeat_type')
             reminder_type = reminder.get('reminder_type', 'message')
             days_ahead = reminder.get('days_ahead', 0)
+            delivery_failed = False
             
             # Process based on reminder type
             if reminder_type == 'share_events':
@@ -657,6 +664,7 @@ def process_due_reminders(client: WebClient, logger: logging.Logger) -> None:
                                 logger.info(f"Shared event {event['id']} from reminder {reminder_id} to channel {channel_id}")
                             except Exception as e:
                                 logger.error(f"Failed to share event {event['id']} from reminder {reminder_id}: {e}")
+                                delivery_failed = True
                     else:
                         # No events found - send the custom message
                         try:
@@ -667,6 +675,7 @@ def process_due_reminders(client: WebClient, logger: logging.Logger) -> None:
                             logger.info(f"Sent no-events message from reminder {reminder_id} to channel {channel_id}")
                         except Exception as e:
                             logger.error(f"Failed to send no-events message from reminder {reminder_id}: {e}")
+                            delivery_failed = True
                             
                 except Exception as e:
                     logger.error(f"Failed to process share_events reminder {reminder_id}: {e}")
@@ -684,6 +693,9 @@ def process_due_reminders(client: WebClient, logger: logging.Logger) -> None:
                     logger.error(f"Failed to send reminder {reminder_id}: {e}")
                     continue
             
+            if delivery_failed:
+                continue
+
             # Update or deactivate based on repeat type
             if not repeat_type or repeat_type == 'once':
                 # One-time reminder - deactivate it
@@ -694,6 +706,9 @@ def process_due_reminders(client: WebClient, logger: logging.Logger) -> None:
                 try:
                     current_time = reminder['remind_at']
                     next_time = calculate_next_reminder_time(current_time, repeat_type)
+                    now = datetime.now()
+                    while next_time <= now:
+                        next_time = calculate_next_reminder_time(next_time, repeat_type)
                     update_reminder_next_time(reminder_id, next_time, logger=logger)
                     logger.info(f"Updated reminder {reminder_id} to next time: {next_time}")
                 except Exception as e:

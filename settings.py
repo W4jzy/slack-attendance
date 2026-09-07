@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 import logging

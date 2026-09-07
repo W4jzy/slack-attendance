@@ -24,6 +24,24 @@ erDiagram
     USERS {
         varchar user_id PK
         varchar name
+        varchar category
+    }
+    REMINDERS {
+        int id PK
+        varchar channel_id
+        datetime remind_at
+        text message
+        varchar repeat_type
+        boolean active
+        varchar reminder_type
+        int days_ahead
+        varchar event_type_filter
+    }
+    SCHEMA_MIGRATIONS {
+        varchar version PK
+        varchar name
+        char checksum
+        timestamp applied_at
     }
     HISTORY {
         int id PK

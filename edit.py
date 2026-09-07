@@ -1,10 +1,9 @@
 from typing import Dict, List, Any, Optional
 from slack_sdk import WebClient
-from slack_sdk.errors import SlackApiError
 from datetime import datetime
 import logging
 import config
-from db import load_events_by_date_from_db, load_event_from_db, load_user_in_event, load_user_from_db, load_participants_from_event
+from db import load_events_by_date_from_db, load_event_from_db, load_user_in_event, load_user_from_db
 
 class EditError(Exception):
     """Base exception for edit related errors"""

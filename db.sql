@@ -1,179 +1,93 @@
--- phpMyAdmin SQL Dump
--- version 4.6.6deb5ubuntu0.5
--- https://www.phpmyadmin.net/
---
--- Host: localhost:3306
--- Generation Time: Oct 30, 2024 at 04:02 PM
--- Server version: 5.7.42-0ubuntu0.18.04.1
--- PHP Version: 7.2.24-0ubuntu0.18.04.17
+-- Generated bootstrap snapshot of migrations/*.sql (001-003).
+-- Prefer python migrate.py migrate; importing this snapshot does not record migration history.
+-- After a manual import, run the migration runner to register the baseline.
 
-SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
-SET time_zone = "+00:00";
+-- Core attendance tables. Existing installations keep their tables and data.
+CREATE TABLE IF NOT EXISTS `users` (
+  `user_id` varchar(50) NOT NULL,
+  `name` varchar(100) NOT NULL,
+  `category` varchar(100) DEFAULT NULL,
+  PRIMARY KEY (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_czech_ci;
 
-
-/*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
-/*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
-/*!40101 SET @OLD_COLLATION_CONNECTION=@@COLLATION_CONNECTION */;
-/*!40101 SET NAMES utf8mb4 */;
-
---
--- Database: `attendance`
---
-
--- --------------------------------------------------------
-
---
--- Table structure for table `events`
---
-
-CREATE TABLE `events` (
-  `id` int(11) NOT NULL,
+CREATE TABLE IF NOT EXISTS `events` (
+  `id` int NOT NULL AUTO_INCREMENT,
   `name` varchar(100) NOT NULL,
   `start_time` datetime NOT NULL,
   `end_time` datetime NOT NULL,
   `lock_time` datetime NOT NULL,
   `type` varchar(100) NOT NULL,
-  `address` varchar(255) DEFAULT NULL
+  `address` varchar(255) DEFAULT NULL,
+  PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_czech_ci;
 
--- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `participants` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `user_id` varchar(50) DEFAULT NULL,
+  `event_id` int DEFAULT NULL,
+  `status` varchar(100) DEFAULT NULL,
+  `note` varchar(255) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `participants_ibfk_1` (`user_id`),
+  KEY `participants_ibfk_2` (`event_id`),
+  CONSTRAINT `participants_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE,
+  CONSTRAINT `participants_ibfk_2` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_czech_ci;
 
---
--- Table structure for table `history`
---
-
-CREATE TABLE `history` (
-  `id` int(11) NOT NULL,
-  `event_id` int(11) NOT NULL,
+CREATE TABLE IF NOT EXISTS `history` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `event_id` int NOT NULL,
   `user_id` varchar(50) NOT NULL,
   `timestamp` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `old_status` varchar(20) DEFAULT NULL,
   `new_status` varchar(20) DEFAULT NULL,
   `old_note` varchar(255) DEFAULT NULL,
-  `new_note` varchar(255) DEFAULT NULL
+  `new_note` varchar(255) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `event_id` (`event_id`),
+  KEY `user_id` (`user_id`),
+  CONSTRAINT `history_ibfk_1` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `history_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_czech_ci;
 
--- --------------------------------------------------------
-
---
--- Table structure for table `participants`
---
-
-CREATE TABLE `participants` (
-  `id` int(11) NOT NULL,
-  `user_id` varchar(50) DEFAULT NULL,
-  `event_id` int(11) DEFAULT NULL,
-  `status` varchar(100) DEFAULT NULL,
-  `note` varchar(255) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_czech_ci;
-
--- --------------------------------------------------------
-
---
--- Table structure for table `reminders`
---
-
-CREATE TABLE `reminders` (
-  `id` int(11) NOT NULL,
+-- Former add_reminders_table.sql; safe for databases that already have reminders.
+CREATE TABLE IF NOT EXISTS `reminders` (
+  `id` int NOT NULL AUTO_INCREMENT,
   `channel_id` varchar(50) NOT NULL,
   `remind_at` datetime NOT NULL,
   `message` text NOT NULL,
   `repeat_type` varchar(100) DEFAULT NULL,
-  `active` tinyint(1) DEFAULT 1
+  `active` tinyint(1) DEFAULT 1,
+  PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_czech_ci;
 
--- --------------------------------------------------------
+-- Former alter_reminders_table.sql. Checks allow retry after partially committed DDL.
 
---
--- Table structure for table `users`
---
+SET @column_exists = (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'reminders' AND COLUMN_NAME = 'reminder_type'
+);
+SET @migration_sql = IF(@column_exists = 0, 'ALTER TABLE `reminders` ADD COLUMN `reminder_type` varchar(20) DEFAULT ''message''', 'DO 0');
+PREPARE migration_statement FROM @migration_sql;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
 
-CREATE TABLE `users` (
-  `user_id` varchar(50) NOT NULL,
-  `name` varchar(100) NOT NULL,
-  `category` varchar(100) DEFAULT NULL,
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_czech_ci;
+SET @column_exists = (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'reminders' AND COLUMN_NAME = 'days_ahead'
+);
+SET @migration_sql = IF(@column_exists = 0, 'ALTER TABLE `reminders` ADD COLUMN `days_ahead` int DEFAULT 0', 'DO 0');
+PREPARE migration_statement FROM @migration_sql;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
 
---
--- Indexes for dumped tables
---
+SET @column_exists = (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'reminders' AND COLUMN_NAME = 'event_type_filter'
+);
+SET @migration_sql = IF(@column_exists = 0, 'ALTER TABLE `reminders` ADD COLUMN `event_type_filter` varchar(100) DEFAULT NULL', 'DO 0');
+PREPARE migration_statement FROM @migration_sql;
+EXECUTE migration_statement;
+DEALLOCATE PREPARE migration_statement;
 
---
--- Indexes for table `events`
---
-ALTER TABLE `events`
-  ADD PRIMARY KEY (`id`);
-
---
--- Indexes for table `history`
---
-ALTER TABLE `history`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `event_id` (`event_id`),
-  ADD KEY `user_id` (`user_id`);
-
---
--- Indexes for table `participants`
---
-ALTER TABLE `participants`
-  ADD PRIMARY KEY (`id`),
-  ADD KEY `participants_ibfk_2` (`event_id`),
-  ADD KEY `participants_ibfk_1` (`user_id`);
-
---
--- Indexes for table `reminders`
---
-ALTER TABLE `reminders`
-  ADD PRIMARY KEY (`id`);
-
---
--- Indexes for table `users`
---
-ALTER TABLE `users`
-  ADD PRIMARY KEY (`user_id`);
-
---
--- AUTO_INCREMENT for dumped tables
---
-
---
--- AUTO_INCREMENT for table `events`
---
-ALTER TABLE `events`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
---
--- AUTO_INCREMENT for table `history`
---
-ALTER TABLE `history`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
---
--- AUTO_INCREMENT for table `participants`
---
-ALTER TABLE `participants`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
---
--- AUTO_INCREMENT for table `reminders`
---
-ALTER TABLE `reminders`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
---
--- Constraints for dumped tables
---
-
---
--- Constraints for table `history`
---
-ALTER TABLE `history`
-  ADD CONSTRAINT `history_ibfk_1` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `history_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE;
-
---
--- Constraints for table `participants`
---
-ALTER TABLE `participants`
-  ADD CONSTRAINT `participants_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `participants_ibfk_2` FOREIGN KEY (`event_id`) REFERENCES `events` (`id`) ON DELETE CASCADE;
-
-/*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
-/*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
-/*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+UPDATE `reminders` SET `reminder_type` = 'message' WHERE `reminder_type` IS NULL;

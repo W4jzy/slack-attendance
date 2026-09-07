@@ -16,7 +16,7 @@ Dokumentace pro uživatele a administrátory:
 - Technické detaily
 - Řešení problémů
 
-### 3. `add_reminders_table.sql`
+### 3. `migrations/002_add_reminders.sql`
 SQL skript pro přidání tabulky reminders do existující databáze
 
 ## Upravené soubory
@@ -95,7 +95,7 @@ Hlavní menu (overflow)
 
 ## Instalace
 
-1. **Databáze**: Spusťte `add_reminders_table.sql` nebo použijte aktualizovaný `db.sql`
+1. **Databáze**: Spusťte `python migrate.py migrate` (viz README); jednotlivé SQL soubory nespouštějte ručně
 2. **Restart aplikace**: Aplikace automaticky startuje reminder loop
 3. **Přístup**: Hlavní menu → Upravit události → Reminders
 

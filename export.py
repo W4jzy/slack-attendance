@@ -83,7 +83,7 @@ def export_data_to_csv(start_date: str, end_date: str, user_id: str, client: Web
         logger.error(f"Export error: {e}")
         client.chat_postMessage(
             channel=user_id,
-            text=f"❌ Chyba při exportu docházky."
+            text="❌ Chyba při exportu docházky."
         )
     except Exception as e:
         logger.error(f"Unexpected error during export: {e}")
@@ -146,7 +146,7 @@ def export_participants(
     """
     try:
         ack()
-        if not (user_id := body.get("user", {}).get("id")):
+        if not body.get("user", {}).get("id"):
             raise ValueError("User ID not found")
 
         blocks = create_export_blocks()

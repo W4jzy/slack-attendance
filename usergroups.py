@@ -1,9 +1,9 @@
 import os
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
-from dotenv import load_dotenv
+from runtime import load_environment
 
-load_dotenv()
+load_environment()
 
 client = WebClient(token=os.getenv("SLACK_BOT_TOKEN"))
 

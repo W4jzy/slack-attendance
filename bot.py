@@ -1,3 +1,65 @@
+from attendance import (
+    ATTENDANCE_MODAL_CONFIG,
+    EMPTY_MODAL_CONFIG,
+    create_empty_blocks,
+    create_participant_blocks,
+    open_chat_attendance_modal,
+    share_event,
+    show_attendance,
+    show_empty,
+    show_history,
+    show_mass_insert,
+    show_participants,
+    update_history_view,
+)
+from db import (
+    add_event_to_db,
+    add_reminder_to_db,
+    check_user,
+    check_user_category,
+    delete_event,
+    delete_reminder,
+    insert_participation,
+    load_event_from_db,
+    load_events_in_range_from_db,
+    load_participants_from_event,
+    load_users_by_category,
+    load_users_from_db,
+    toggle_reminder_active,
+    update_reminder,
+    update_user_category,
+)
+from edit import (
+    show_edit_attendance,
+    show_edit_attendance_for_event,
+    show_edit_attendance_players,
+    show_edit_player_category,
+    show_events_by_day,
+    update_edit_attendance_modal,
+)
+from events import (
+    add_event,
+    handle_duplicate_event_submission,
+    handle_edit_event_submission,
+    open_duplicate_modal,
+    open_edit_modal,
+    show_event_details,
+    show_events,
+)
+from export import (
+    export_data_to_csv,
+    export_participants,
+)
+from reminders import (
+    execute_reminder_now,
+    open_add_reminder_modal,
+    open_edit_reminder_modal,
+    process_due_reminders,
+    show_reminders_list,
+)
+from settings import (
+    go_to_settings,
+)
 import os
 import re
 import logging
@@ -6,27 +68,20 @@ import sys
 import threading
 import time
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
+from runtime import load_environment, configure_locale
+from access import authorize_admin
 from typing import Dict, Any, Tuple, List, Callable, Optional
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
-from db import *
-from attendance import *
-from events import *
-from export import *
-from settings import *
-from edit import *
-from reminders import *
 import config
 import calendar
 import locale
 
-load_dotenv()
-
-# Initialize locale
-locale.setlocale(locale.LC_COLLATE, 'cs_CZ.utf8')
+load_environment()
+configure_locale()
+config.load_settings()
 
 # Constants
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
@@ -180,6 +235,7 @@ class SlackBotError(Exception):
 
 # Initialize app and client
 app = App(token=SLACK_BOT_TOKEN)
+app.use(authorize_admin)
 client = WebClient(token=SLACK_BOT_TOKEN)
 
 # Initialize logger for reminder loop
@@ -434,7 +490,7 @@ def all_events(
     """
     try:
         ack()
-        if not (user_id := body.get("user", {}).get("id")):
+        if not body.get("user", {}).get("id"):
             raise ValueError("User ID not found in request body")
         go_to_all_events(ack, body, client, logger)
     except SlackApiError as e:
@@ -724,7 +780,7 @@ def handle_participation_action(
         if datetime.now() > event["lock_time"]:
             client.chat_postMessage(channel=user_id, text=LOCKED_MESSAGE)
         else:
-            insert_participation(event_id, user_id, status, note)
+            insert_participation(event_id, user_id, status, note, enforce_lock=True)
             
         go_to_attendance_page(ack, body, logger, page, filter)
         
@@ -808,7 +864,6 @@ def handle_open_filter(
     """
     try:
         ack()
-        user_id = body["user"]["id"]
         saved_filter = body["actions"][0]["value"]
         
         blocks = build_filter_blocks(saved_filter)
@@ -1215,34 +1270,6 @@ def handle_edit_submission(
             channel=body["user"]["id"],
             text=ERROR_MESSAGES["EDIT_ERROR"]
         )
-
-@app.action(re.compile(r"^duplicate_event_\d+$"))
-def handle_duplicate_action(ack, body, client, logger):
-    ack()
-    try:
-        action_id = body['actions'][0]['action_id']
-        event_id = action_id.split('_')[-1]
-
-        open_duplicate_modal(client, body['trigger_id'], event_id)
-    except Exception as e:
-        logger.error(f"Error handling duplicate event action: {datetime.now()} - {e}")
-
-
-@app.view(re.compile(r"^duplicate_event_\d+$"))
-def handle_duplicate_submission(ack, body, client, logger):
-    ack() 
-
-    try:
-        duplicate_count_str = body['view']['state']['values']['duplicate_count_block']['duplicate_count']['value']
-
-        if not duplicate_count_str.isdigit():
-            return ack(response_action="errors", errors={
-                "duplicate_count_block": "Prosím zadejte platné číslo."
-            })
-
-        handle_duplicate_event_submission(client, body, logger)
-    except Exception as e:
-        logger.error(f"Error handling duplicate event submission: {datetime.now()} - {e}")
 
 @app.action(DUPLICATE_EVENT_PATTERN)
 def handle_duplicate_action(
@@ -1689,7 +1716,7 @@ def handle_attendance_submit(
         events = load_events_in_range_from_db(start_date, end_date)
 
         for event in events:
-            insert_participation(event["id"], user_id, selection, note)
+            insert_participation(event["id"], user_id, selection, note, enforce_lock=True)
 
         show_attendance(client, user_id, logger)
 
@@ -1787,7 +1814,6 @@ def handle_empty_navigation(
         missing_boys = []
         missing_girls = []
         for player_id in participant_ids:
-            player_name = users_dict.get(player_id, player_id)
             if player_id in o_active_players:
                 o_active_players.remove(player_id)
             elif player_id in w_active_players:
@@ -1862,7 +1888,6 @@ def post_event_to_channel(
 ) -> None:
     """Post event to channel."""
     try:
-        event = load_event_from_db(event_id)
         
         # Get sender information
         if user_id:
@@ -1968,7 +1993,7 @@ def handle_chat_attendance_submission(
         selection = values["attendance_selection_block"]["attendance_selection"]["selected_option"]["value"]
         note = values["reason"]["reason_input"]["value"]
 
-        insert_participation(event_id, user_id, selection, note, logger)
+        insert_participation(event_id, user_id, selection, note, logger, enforce_lock=True)
         #show_attendance(client, user_id, logger)
         
     except SlackApiError as e:
@@ -2384,54 +2409,18 @@ def handle_edit_reminder_submission(
 def signal_handler(sig, frame):
     """Handle shutdown signals gracefully."""
     print("\n🛑 Ukončuji aplikaci... Prosím chvilku strpení.")
+    reminder_stop_event.set()
     sys.exit(0)
 
 # ---------- REMINDER TASK LOOP ----------
 
 reminder_stop_event = threading.Event()
 
-def wait_for_30min_alignment():
-    """
-    Wait until the current time aligns to :00 or :30 minutes.
-    Similar to the before_loop in the reference code.
-    """
-    while True:
-        now = datetime.now()
-        minute = now.minute
-        second = now.second
-        
-        # Check if we're at :00 or :30 with 0 seconds
-        if minute % 30 == 0 and second == 0:
-            logger.info(f"Reminder loop aligned at {now}")
-            return
-        
-        # Calculate next alignment time
-        base = now.replace(second=0, microsecond=0)
-        add_minutes = (30 - (minute % 30)) % 30
-        if add_minutes == 0 and second > 0:
-            add_minutes = 30
-        
-        target = base + timedelta(minutes=add_minutes)
-        wait_seconds = (target - now).total_seconds()
-        
-        # Sleep in small increments to allow for shutdown
-        sleep_increment = min(1.0, wait_seconds)
-        for _ in range(int(wait_seconds)):
-            if reminder_stop_event.is_set():
-                return
-            time.sleep(sleep_increment)
-            if wait_seconds < 1:
-                time.sleep(wait_seconds)
-                break
-
 def reminder_loop_thread():
     """
     Background thread that processes reminders every 30 minutes.
     """
     logger.info("Starting reminder loop thread...")
-    
-    # Wait for initial alignment
-    wait_for_30min_alignment()
     
     while not reminder_stop_event.is_set():
         try:

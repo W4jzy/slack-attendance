@@ -2,21 +2,15 @@
 
 ## Instalace databáze
 
-Před spuštěním aplikace je potřeba přidat tabulku `reminders` do databáze. Spusťte následující SQL příkaz:
+Před spuštěním aplikace proveďte číslované migrace:
 
-```sql
-CREATE TABLE IF NOT EXISTS `reminders` (
-  `id` int(11) NOT NULL AUTO_INCREMENT,
-  `channel_id` varchar(50) NOT NULL,
-  `remind_at` datetime NOT NULL,
-  `message` text NOT NULL,
-  `repeat_type` varchar(100) DEFAULT NULL,
-  `active` tinyint(1) DEFAULT 1,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_czech_ci;
+```bash
+python migrate.py status
+python migrate.py migrate
 ```
 
-Nebo použijte kompletní `db.sql` soubor, který již obsahuje tuto tabulku.
+Install a deploy je spouštějí automaticky po záloze. Postup pro novou i existující
+databázi je v [README.md](README.md#databázové-migrace-a-testy).
 
 ## Funkce
 

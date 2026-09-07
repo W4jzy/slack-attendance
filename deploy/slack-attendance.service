@@ -1,0 +1,31 @@
+[Unit]
+Description=Slack attendance bot (Socket Mode)
+Wants=network-online.target
+After=network-online.target mariadb.service
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=slack-attendance
+Group=slack-attendance
+WorkingDirectory=@APP_DIR@
+Environment=ATTENDANCE_CONFIG=/var/lib/slack-attendance/config.ini
+Environment=ATTENDANCE_ENV=/var/lib/slack-attendance/.env
+Environment=TZ=Europe/Prague
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStartPre=/opt/slack-attendance/venv/bin/python @APP_DIR@/manage.py check
+ExecStart=/opt/slack-attendance/venv/bin/python @APP_DIR@/bot.py
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/slack-attendance
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

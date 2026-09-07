@@ -20,15 +20,18 @@ def connect_to_db() -> mysql.connector.MySQLConnection:
     Raises:
         DatabaseError: If connection fails
     """
-    config = ConfigParser()
-    config.read("config.ini")
+    parser = ConfigParser(interpolation=None)
+    parser.read(config.config_path(), encoding='utf-8')
 
     try:
         connection = mysql.connector.connect(
-            host=config.get("database", "host"),
-            user=config.get("database", "user"),
-            password=config.get("database", "password"),
-            database=config.get("database", "database")
+            host=parser.get("database", "host"),
+            port=parser.getint("database", "port", fallback=3306),
+            user=parser.get("database", "user"),
+            password=parser.get("database", "password"),
+            database=parser.get("database", "database"),
+            charset='utf8mb4',
+            connection_timeout=10
         )
         return connection
     except mysql.connector.Error as err:
@@ -288,78 +291,50 @@ def update_participation(event_id, user_id, status, logger: Optional[logging.Log
         """
     execute_query(query, (status, user_id, event_id), logger=logger)
 
-def insert_participation(event_id: int, user_id: str, status: str, 
-                        note: Optional[str] = None,
-                        logger: Optional[logging.Logger] = None) -> None:
-    """
-    Insert or update participant record with proper error handling.
-    
-    Args:
-        event_id: Event ID
-        user_id: User ID
-        status: Participation status
-        note: Optional note
-        logger: Optional logger instance
-        
-    Raises:
-        DatabaseError: If database operation fails
-    """
+def insert_participation(event_id: int, user_id: str, status: str,
+                         note: Optional[str] = None,
+                         logger: Optional[logging.Logger] = None,
+                         *, enforce_lock: bool = False) -> None:
+    """Serialize changes per event and commit attendance and history together."""
+    if status not in {"Coming", "Late", "Not Coming"}:
+        raise DatabaseError("Invalid attendance status")
+    note = note.strip() if note is not None else None
+    connection = connect_to_db()
+    cursor = None
     try:
-        if note is not None:
-            note = note.strip()
-
-        event = execute_query(
-            "SELECT type FROM events WHERE id = %s",
-            (event_id,),
-            fetchone=True,
-            logger=logger
-        )
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute("SELECT type, lock_time FROM events WHERE id = %s FOR UPDATE", (event_id,))
+        event = cursor.fetchone()
         if not event:
             raise DatabaseError(f"Event {event_id} not found")
-
-         # Map status if event is training
-        if event['type'] == 'Trénink':
-            new_status = get_training_status(status)
-        else:
-            new_status = get_other_status(status)
-
-        participant = execute_query(
-            "SELECT * FROM participants WHERE user_id = %s AND event_id = %s",
-            (user_id, event_id),
-            fetchone=True,
-            logger=logger
-        )
-
+        if enforce_lock and datetime.now() >= event['lock_time']:
+            raise DatabaseError("Docházku již nelze změnit: událost je po uzávěrce.")
+        cursor.execute("SELECT * FROM participants WHERE user_id = %s AND event_id = %s",
+                       (user_id, event_id))
+        participants = cursor.fetchall()
+        participant = participants[0] if participants else None
+        translate = get_training_status if event['type'] == 'Trénink' else get_other_status
         if participant:
-            execute_query(
-                """UPDATE participants 
-                   SET status = %s, note = %s 
-                   WHERE user_id = %s AND event_id = %s""",
-                (status, note, user_id, event_id),
-                logger=logger
-            )
-
-            if event['type'] == 'Trénink':
-                old_status = get_training_status(participant['status'])
-            else:
-                old_status = get_other_status(participant['status'])
-
-            log_participant_change(event_id, user_id, old_status, 
-                                 new_status, participant['note'], note, logger)
+            cursor.execute("UPDATE participants SET status = %s, note = %s WHERE user_id = %s AND event_id = %s",
+                           (status, note, user_id, event_id))
         else:
-            execute_query(
-                """INSERT INTO participants (user_id, event_id, status, note) 
-                   VALUES (%s, %s, %s, %s)""",
-                (user_id, event_id, status, note),
-                logger=logger
-            )
-            log_participant_change(event_id, user_id, "Nezadáno", 
-                                 new_status, None, note, logger)
+            cursor.execute("INSERT INTO participants (user_id, event_id, status, note) VALUES (%s, %s, %s, %s)",
+                           (user_id, event_id, status, note))
+        cursor.execute("""INSERT INTO history (event_id, user_id, old_status, new_status, old_note, new_note)
+                          VALUES (%s, %s, %s, %s, %s, %s)""",
+                       (event_id, user_id, translate(participant['status']) if participant else 'Nezadáno',
+                        translate(status), participant['note'] if participant else None, note))
+        connection.commit()
+    except Exception as exc:
+        connection.rollback()
+        if isinstance(exc, DatabaseError):
+            raise
+        raise DatabaseError(f"Failed to update participation: {exc}") from exc
+    finally:
+        if cursor is not None:
+            cursor.close()
+        connection.close()
 
-    except DatabaseError:
-        if logger:
-            logger.error(f"Failed to update participation for user {user_id} in event {event_id}")
-        raise
 
 def log_participant_change(event_id, user_id, old_status, new_status, old_note, new_note, logger: Optional[logging.Logger] = None) -> None:
     query = """
