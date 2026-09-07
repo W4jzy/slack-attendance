@@ -725,85 +725,57 @@ def create_history_navigation(total_items: int, current_page: int, event_id: str
         "elements": elements
     } if elements else None
 
+def history_message_blocks(text):
+    return [{'type': 'section', 'text': {'type': 'plain_text', 'text': text}}]
+
+
+def history_modal(event_id, blocks):
+    return {**HISTORY_MODAL_CONFIG, 'blocks': blocks,
+            'private_metadata': str(event_id), 'callback_id': f'history_view_{event_id}'}
+
+
 def create_history_blocks(history: List[Dict[str, Any]], page: int, event_id: str) -> List[Dict[str, Any]]:
-    """Create blocks for history modal with pagination."""
+    """Render history with a visible empty state and bounded page number."""
+    if not history:
+        return history_message_blocks('U této události zatím nejsou zaznamenané žádné změny docházky.')
+    page = max(0, min(page, (len(history) - 1) // HISTORY_PAGE_SIZE))
     start = page * HISTORY_PAGE_SIZE
-    end = start + HISTORY_PAGE_SIZE
-    page_items = history[start:end]
-    
-    blocks = [
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": format_change_text(change)
-            }
-        }
-        for change in page_items
-    ]
-    
-    nav = create_history_navigation(len(history), page, event_id)
-    if nav:
-        blocks.append(nav)
-        
+    blocks = [{'type': 'section', 'text': {'type': 'mrkdwn', 'text': format_change_text(change)}}
+              for change in history[start:start + HISTORY_PAGE_SIZE]]
+    navigation = create_history_navigation(len(history), page, event_id)
+    if navigation:
+        blocks.append(navigation)
     return blocks
 
-def show_history(
-    body: Dict[str, Any],
-    client: WebClient,
-    logger: logging.Logger,
-    event_id: str,
-    page: int = 0
-) -> None:
-    """Show event history in a modal view with pagination."""
+
+def show_history(body, client, logger, event_id, page=0):
+    """Open the modal before querying the DB so its short-lived trigger does not expire."""
     try:
-        history = load_history_from_event(event_id)
-        blocks = create_history_blocks(history, page, event_id)
-        
-        view = {
-            **HISTORY_MODAL_CONFIG,
-            "blocks": blocks,
-            "private_metadata": event_id,
-            "callback_id": f"history_view_{event_id}"
-        }
-        
-        client.views_open(
-            trigger_id=body["trigger_id"],
-            view=view
+        response = client.views_open(
+            trigger_id=body['trigger_id'],
+            view=history_modal(event_id, history_message_blocks('Načítám historii docházky…')),
         )
-    except SlackApiError as e:
-        logger.exception(f"Slack API error showing history: {datetime.now()} - {e}")
+    except Exception:
+        logger.exception('Failed to open history modal event=%s', event_id)
         raise
-    except Exception as e:
-        logger.exception(f"Error showing history: {datetime.now()} - {e}")
+    update_history_view(client, response['view']['id'], event_id, page, logger)
+
+
+def update_history_view(client, view_id, event_id, page, logger):
+    try:
+        history = load_history_from_event(event_id, logger=logger)
+        blocks = create_history_blocks(history, page, event_id)
+        client.views_update(view_id=view_id, view=history_modal(event_id, blocks))
+        logger.info('History view updated event=%s page=%s records=%s', event_id, page, len(history))
+    except Exception:
+        logger.exception('Failed to update history view event=%s page=%s', event_id, page)
+        try:
+            client.views_update(view_id=view_id, view=history_modal(
+                event_id, history_message_blocks('Historii se nepodařilo načíst. Zavři okno a zkus to znovu.')))
+        except Exception:
+            logger.exception('Failed to display history error event=%s', event_id)
         raise
 
-def update_history_view(
-    client: WebClient,
-    view_id: str,
-    event_id: str,
-    page: int,
-    logger: logging.Logger
-) -> None:
-    """Update history modal view with new page."""
-    try:
-        history = load_history_from_event(event_id)
-        blocks = create_history_blocks(history, page, event_id)
-        
-        view = {
-            **HISTORY_MODAL_CONFIG,
-            "blocks": blocks,
-            "private_metadata": event_id,
-            "callback_id": f"history_view_{event_id}"
-        }
-        
-        client.views_update(
-            view_id=view_id,
-            view=view
-        )
-    except Exception as e:
-        logger.exception(f"Error updating history view: {datetime.now()} - {e}")
-        raise
 
 def create_empty_navigation(current_page: int, event_id: str) -> Dict[str, Any]:
     """Create navigation for empty players status pages."""

@@ -209,7 +209,7 @@ def load_history_from_event(event_id, logger: Optional[logging.Logger] = None) -
         FROM history h
         JOIN users u ON h.user_id = u.user_id
         WHERE event_id = %s
-        ORDER BY h.timestamp DESC
+        ORDER BY h.timestamp DESC, h.id DESC
     """
     return execute_query(query, (event_id,), logger=logger)
 
